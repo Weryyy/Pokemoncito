@@ -1,0 +1,7 @@
+torch
+gymnasium
+numpy
+requests
+matplotlib
+pygame
+requests
