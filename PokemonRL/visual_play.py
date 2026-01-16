@@ -72,7 +72,7 @@ class GameVisualizer:
         self.env = PokemonSimEnv(verbose=True) # <--- verbose=True para ver todo en consola
         self.sprites = SpriteManager()
         
-        self.explorer = ExplorerAgent(obs_shape=(3, 10, 10), n_actions=4)
+        self.explorer = ExplorerAgent(obs_shape=(9, 10, 10), n_actions=4)
         self.tactician = TacticianAgent(input_dim=10, n_actions=5)
         self.strategist = Strategist(self.env.pokedex)
         
@@ -270,7 +270,8 @@ class GameVisualizer:
 
                 if self.env.mode == "MAP":
                     with torch.no_grad():
-                        st_t = torch.FloatTensor(self.env.map_state).unsqueeze(0).to(self.explorer.device)
+                        # OJO: Usamos _get_stacked_state() aquí
+                        st_t = torch.FloatTensor(self.env._get_stacked_state()).unsqueeze(0).to(self.explorer.device)
                         q_vals = self.explorer.policy_net(st_t)
                         action = q_vals.argmax().item()
                         
