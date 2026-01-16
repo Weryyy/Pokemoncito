@@ -8,8 +8,8 @@ from src.agents.tactician import TacticianAgent
 from src.agents.strategist import Strategist
 
 # --- AJUSTES PARA VERSIÓN CON MEMORIA ---
-EPISODES = 5000        # Aumentamos duración
-MAX_STEPS = 600        # Damos más tiempo por episodio
+EPISODES = 2000        # Aumentamos duración
+MAX_STEPS = 300        # Damos más tiempo por episodio
 SAVE_INTERVAL = 200    # Guardamos menos a menudo para no llenar el disco
 
 def save_checkpoint(explorer, tactician, episode):
@@ -35,11 +35,11 @@ def train():
     try: 
         for episode in range(1, EPISODES + 1):
             
-            # Curriculum Learning Ajustado
-            if episode < 1000: map_idx = 0
-            elif episode < 2000: map_idx = np.random.choice([0, 1])
-            elif episode < 3500: map_idx = np.random.choice([0, 1, 2, 3])
-            else: map_idx = np.random.choice([0, 1, 2, 3, 4])
+           # Curriculum Acelerado para 1500 Episodios
+            if episode < 300: map_idx = 0          # Pueblo Paleta (Tutorial)
+            elif episode < 600: map_idx = np.random.choice([0, 1])
+            elif episode < 1000: map_idx = np.random.choice([0, 1, 2, 3])
+            else: map_idx = np.random.choice([0, 1, 2, 3, 4]) # Examen Final
             env.current_map_idx = map_idx
             
             if (episode-1) % 10 == 0:

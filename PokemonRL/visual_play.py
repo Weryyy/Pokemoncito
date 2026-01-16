@@ -6,6 +6,7 @@ import os
 import requests
 import io
 import time
+from collections import deque
 from src.env.pokemon_env import PokemonSimEnv
 from src.agents.explorer import ExplorerAgent
 from src.agents.tactician import TacticianAgent
@@ -13,21 +14,24 @@ from src.agents.strategist import Strategist
 from src.env.battle_engine import BattleEngine
 from src.env.maps import ALL_MAPS
 
+# --- CONFIGURACIÓN ---
 CELL_SIZE = 50
 GRID_W, GRID_H = 10, 10
 SCREEN_W = GRID_W * CELL_SIZE
-SCREEN_H = GRID_H * CELL_SIZE + 200 
+SCREEN_H = GRID_H * CELL_SIZE + 220 
 FPS = 60
-STEP_DELAY = 150
+STEP_DELAY = 50 
 BOSS_DELAY = 500
 
 C_BG = (20, 20, 20)
 C_WALL = (100, 100, 100)
 C_GRASS = (50, 150, 50)
 C_PATH = (200, 200, 180)
-C_PLAYER = (255, 50, 50)
+C_PLAYER = (0, 255, 255) # CIAN BRILLANTE (Para que se vea bien)
 C_GOAL = (255, 215, 0)
 C_TEXT = (255, 255, 255)
+C_BLOCKED = (0, 0, 0) 
+C_VISITED = (50, 50, 50) # GRIS OSCURO (Rastro de migas)
 
 GYM_LEADER_TEAM_IDS = ["18", "65", "112", "59", "103", "6"] 
 
@@ -59,24 +63,22 @@ class SpriteManager:
         except: return self.default
 
 class GameVisualizer:
-    def __init__(self, episode_to_load=3000):
+    def __init__(self, episode_to_load=2000):
         pygame.init()
         self.screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
-        pygame.display.set_caption("Pokémon AI: RPG Adventure")
+        pygame.display.set_caption("Pokémon AI: Gameplay Completo")
         self.clock = pygame.time.Clock()
         self.font_log = pygame.font.SysFont("Consolas", 14)
         self.font_ui = pygame.font.SysFont("Arial", 20, bold=True)
         self.big_font = pygame.font.SysFont("Arial", 40, bold=True)
         
-        # --- ACTIVAR LOGS AQUÍ ---
-        self.env = PokemonSimEnv(verbose=True) # <--- verbose=True para ver todo en consola
+        self.env = PokemonSimEnv(verbose=True) 
         self.sprites = SpriteManager()
         
         self.explorer = ExplorerAgent(obs_shape=(9, 10, 10), n_actions=4)
         self.tactician = TacticianAgent(input_dim=10, n_actions=5)
         self.strategist = Strategist(self.env.pokedex)
         
-        # Cargar Checkpoints (Ruta Absoluta Blindada)
         base_dir = os.path.dirname(os.path.abspath(__file__))
         checkpoint_dir = os.path.join(base_dir, "checkpoints")
         exp_path = os.path.join(checkpoint_dir, f"explorer_ep{episode_to_load}.pth")
@@ -99,6 +101,13 @@ class GameVisualizer:
         self.boss_mode = False
         self.my_full_team = [] 
         self.enemy_gym_team = []
+        
+        # --- MEMORIA DE NAVEGACIÓN ---
+        self.wall_hits = {}       
+        self.blocked_cells = set() 
+        self.visit_counts = {} 
+        self.action_history = deque(maxlen=15)
+        
         self.setup_rpg_teams()
         self.load_level(0)
 
@@ -109,13 +118,11 @@ class GameVisualizer:
         for pid in party_ids:
             if pid in self.env.pokedex:
                 p = self.env.pokedex[pid].copy()
-                p['level'] = 5
+                p['level'] = 15 # Subimos nivel inicial para aguantar más
                 p['exp'] = 0
-                p['stats'] = BattleEngine.get_stats_at_level(p, 5)
+                p['stats'] = BattleEngine.get_stats_at_level(p, 15)
                 self.my_full_team.append(p)
-        self.env.my_pokemon = self.my_full_team[0].copy()
-        self.env.my_hp = self.env.my_pokemon['stats']['hp']
-        self.env.max_hp_my = self.env.my_hp
+        self.update_active_pokemon()
 
         for pid in GYM_LEADER_TEAM_IDS:
             if pid in self.env.pokedex:
@@ -123,6 +130,55 @@ class GameVisualizer:
                 p['level'] = 50
                 p['stats'] = BattleEngine.get_stats_at_level(p, 50)
                 self.enemy_gym_team.append(p)
+
+    def update_active_pokemon(self):
+        """Busca el primer Pokémon vivo del equipo"""
+        for p in self.my_full_team:
+            if p['stats']['hp'] > 0:
+                self.env.my_pokemon = p.copy()
+                self.env.my_hp = p['stats']['hp']
+                self.env.max_hp_my = p['stats']['hp']
+                return True
+        return False # Todos muertos
+
+    def respawn_player(self):
+        """Reinicia el nivel y cura al equipo"""
+        print("💀 ¡EQUIPO DEBILITADO! Volviendo al Centro Pokémon...")
+        self.battle_log.append("¡EQUIPO DEBILITADO! Respawn...")
+        
+        # Curar equipo
+        for p in self.my_full_team:
+            p['stats'] = BattleEngine.get_stats_at_level(p, p['level'])
+        
+        self.update_active_pokemon()
+        
+        # Resetear Mapa y Memorias (Importante olvidar bloqueos antiguos)
+        self.env.reset()
+        self.env.grid = np.array(ALL_MAPS[self.current_level_idx])
+        self.wall_hits.clear()
+        self.blocked_cells.clear()
+        self.visit_counts.clear()
+        self.action_history.clear()
+        time.sleep(1) # Pequeña pausa dramática
+
+    def check_team_health(self):
+        """Verifica si el Pokémon activo ha muerto y saca al siguiente"""
+        if self.env.my_hp <= 0:
+            fainted_name = self.env.my_pokemon['name']
+            print(f"❌ {fainted_name} se debilitó.")
+            self.battle_log.append(f"{fainted_name} cayó!")
+            
+            # Actualizar HP en la lista maestra
+            for p in self.my_full_team:
+                if p['name'] == fainted_name:
+                    p['stats']['hp'] = 0
+            
+            # Intentar sacar al siguiente
+            if self.update_active_pokemon():
+                print(f"⚡ ¡Adelante {self.env.my_pokemon['name']}!")
+                self.battle_log.append(f"¡Go {self.env.my_pokemon['name']}!")
+            else:
+                self.respawn_player()
 
     def load_level(self, idx):
         if idx >= len(ALL_MAPS):
@@ -134,6 +190,12 @@ class GameVisualizer:
         self.env.reset() 
         self.env.grid = np.array(ALL_MAPS[idx]) 
         self.battle_log.append(f"--- NIVEL {idx + 1} ---")
+        
+        self.wall_hits.clear()
+        self.blocked_cells.clear()
+        self.visit_counts.clear() 
+        self.action_history.clear()
+        
         print(f"\n🗺 CARGANDO NIVEL {idx + 1}")
 
     def start_boss_battle(self):
@@ -145,11 +207,13 @@ class GameVisualizer:
         self.env.enemy_pokemon = self.enemy_gym_team[0].copy()
         self.env.max_hp_enemy = self.env.enemy_pokemon['stats']['hp']
         self.env.enemy_hp = self.env.max_hp_enemy
-        best = self.strategist.build_team(self.env.enemy_pokemon['types'][0])
-        real_best = next((p for p in self.my_full_team if p['name'] == best['name']), self.my_full_team[0])
-        self.env.my_pokemon = real_best.copy()
-        self.env.max_hp_my = real_best['stats']['hp']
-        self.env.my_hp = self.env.max_hp_my
+        
+        # El estratega elige el mejor pokemon vivo para empezar
+        candidates = [p for p in self.my_full_team if p['stats']['hp'] > 0]
+        if candidates:
+            self.env.my_pokemon = candidates[0].copy()
+            self.env.my_hp = self.env.my_pokemon['stats']['hp']
+            self.env.max_hp_my = self.env.my_hp
 
     def draw_game(self):
         self.screen.fill(C_BG)
@@ -178,11 +242,26 @@ class GameVisualizer:
             for x in range(GRID_W):
                 rect = (x*CELL_SIZE, y*CELL_SIZE, CELL_SIZE, CELL_SIZE)
                 val = self.env.grid[y][x]
+                
                 color = C_PATH
                 if val == 1: color = C_WALL
                 elif val == 2: color = C_GRASS
                 elif val == 9: color = C_GOAL
+                
+                if (y, x) in self.blocked_cells:
+                    color = C_BLOCKED
+                
                 pygame.draw.rect(self.screen, color, rect)
+                
+                visits = self.visit_counts.get((y,x), 0)
+                if visits > 0 and val != 1:
+                    # Rastro GRIS OSCURO sutil
+                    alpha = min(150, visits * 30) 
+                    s = pygame.Surface((CELL_SIZE, CELL_SIZE))
+                    s.set_alpha(alpha)
+                    s.fill(C_VISITED) 
+                    self.screen.blit(s, (x*CELL_SIZE, y*CELL_SIZE))
+
                 pygame.draw.rect(self.screen, (0,0,0), rect, 1)
 
     def draw_battle_scene(self):
@@ -208,8 +287,16 @@ class GameVisualizer:
             txt = self.font_log.render(line, True, C_TEXT)
             self.screen.blit(txt, (10, base_y + 10 + i*20))
 
+    def get_target_pos(self, action):
+        y, x = self.env.player_pos
+        if action == 0: y -= 1 
+        elif action == 1: y += 1 
+        elif action == 2: x -= 1 
+        elif action == 3: x += 1 
+        return y, x
+
     def run(self):
-        print("📺 VENTANA GRÁFICA INICIADA...")
+        print("📺 VENTANA GRÁFICA INICIADA (GAMEPLAY COMPLETO)...")
         running = True
         last_step_time = pygame.time.get_ticks()
         self.screen.fill(C_BG)
@@ -227,28 +314,14 @@ class GameVisualizer:
 
             if current_time - last_step_time > needed_delay:
                 last_step_time = current_time
+                
+                # --- VERIFICACIÓN DE VIDA (GLOBAL) ---
+                # Hacemos esto ANTES de cualquier acción para asegurar que no hay zombies
+                self.check_team_health()
+
                 if self.boss_mode:
-                    if self.env.my_hp <= 0:
-                        self.battle_log.append(f"{self.env.my_pokemon['name']} cayó!")
-                        print(f"❌ {self.env.my_pokemon['name']} ha sido debilitado.")
-                        for p in self.my_full_team:
-                            if p['name'] == self.env.my_pokemon['name']: p['stats']['hp'] = 0
-                        candidates = [p for p in self.my_full_team if p['stats']['hp'] > 0]
-                        if not candidates:
-                            self.battle_log.append("¡TE HAN DERROTADO!")
-                            print("☠ GAME OVER - Sin Pokémon restantes.")
-                            pygame.display.flip(); pygame.time.delay(3000); running = False
-                            continue
-                        self.strategist.current_party = {str(p['id']): p for p in self.my_full_team}
-                        next_mon = self.strategist.build_team(self.env.enemy_pokemon['types'][0])
-                        if next_mon['stats']['hp'] <= 0: next_mon = candidates[0]
-                        self.env.my_pokemon = next_mon.copy()
-                        self.env.max_hp_my = self.env.my_pokemon['stats']['hp']
-                        self.env.my_hp = self.env.max_hp_my
-                        continue
                     if self.env.enemy_hp <= 0:
                         self.battle_log.append(f"Rival {self.env.enemy_pokemon['name']} cayó!")
-                        print(f"✅ ¡Rival {self.env.enemy_pokemon['name']} derrotado!")
                         self.boss_pokemon_idx += 1
                         if self.boss_pokemon_idx >= len(self.enemy_gym_team):
                             self.battle_log.append("¡¡¡ERES EL CAMPEÓN!!!")
@@ -258,8 +331,8 @@ class GameVisualizer:
                         self.env.enemy_pokemon = self.enemy_gym_team[self.boss_pokemon_idx].copy()
                         self.env.max_hp_enemy = self.env.enemy_pokemon['stats']['hp']
                         self.env.enemy_hp = self.env.max_hp_enemy
-                        print(f"⚡ Rival saca a {self.env.enemy_pokemon['name']}")
                         continue
+                    
                     with torch.no_grad():
                         st = self.env._get_combat_state()
                         st_t = torch.FloatTensor(st).unsqueeze(0).to(self.tactician.device)
@@ -269,23 +342,56 @@ class GameVisualizer:
                     continue
 
                 if self.env.mode == "MAP":
+                    move_names = ["ARRIBA", "ABAJO", "IZQUIERDA", "DERECHA"]
+                    curr_pos = tuple(self.env.player_pos)
+                    self.visit_counts[curr_pos] = self.visit_counts.get(curr_pos, 0) + 1
+                    
                     with torch.no_grad():
-                        # OJO: Usamos _get_stacked_state() aquí
                         st_t = torch.FloatTensor(self.env._get_stacked_state()).unsqueeze(0).to(self.explorer.device)
                         q_vals = self.explorer.policy_net(st_t)
-                        action = q_vals.argmax().item()
+                        q_vals_np = q_vals.cpu().numpy()[0].copy()
                         
-                        # LOG DE MOVIMIENTO
-                        move_names = ["ARRIBA", "ABAJO", "IZQUIERDA", "DERECHA"]
-                        print(f"🚶 Explorador decide: {move_names[action]}") # Descomentar si quieres spam de logs
+                        for a in range(4):
+                            ty, tx = self.get_target_pos(a)
+                            coord = (ty, tx)
+                            if coord in self.blocked_cells:
+                                q_vals_np[a] = -99999
+                                continue
+                            visits = self.visit_counts.get(coord, 0)
+                            if visits > 0:
+                                penalty = (visits ** 2) * 1.5 
+                                q_vals_np[a] -= penalty
                         
+                        action = np.argmax(q_vals_np)
+                        
+                        # ANTI-SPAM
+                        self.action_history.append(action)
+                        if len(self.action_history) == 15 and len(set(self.action_history)) == 1:
+                             print("😵 SPAM DETECTADO: ¡Basta de pulsar el mismo botón!")
+                             action = np.random.randint(0,4)
+                             self.action_history.clear()
+
+                        # DETECTOR PAREDES
+                        ty, tx = self.get_target_pos(action)
+                        if 0 <= tx < GRID_W and 0 <= ty < GRID_H and self.env.grid[ty][tx] == 1:
+                            coord = (ty, tx)
+                            current_hits = self.wall_hits.get(coord, 0) + 1
+                            self.wall_hits[coord] = current_hits
+                            print(f"💥 Golpe #{current_hits} en pared {coord}")
+                            if current_hits >= 2:
+                                print(f"🚫 BLOQUEANDO {coord}")
+                                self.blocked_cells.add(coord)
+                                q_vals_np[action] = -99999
+                                action = np.argmax(q_vals_np)
+
+                        print(f"🚶 Agente: {move_names[action]}")
+
                     _, _, done, _, info = self.env.step(action)
                     if done: 
                         self.battle_log.append("¡Nivel Superado!")
                         self.load_level(self.current_level_idx + 1)
                     if self.env.mode == "COMBAT": 
                         self.battle_log.append(f"¡{self.env.enemy_pokemon['name']} salvaje!")
-                        print(f"⚠ ¡COMBATE SALVAJE! vs {self.env.enemy_pokemon['name']}")
                         
                 elif self.env.mode == "COMBAT":
                     with torch.no_grad():
@@ -293,9 +399,7 @@ class GameVisualizer:
                         st_t = torch.FloatTensor(st).unsqueeze(0).to(self.tactician.device)
                         action = self.tactician.policy_net(st_t).argmax().item()
                     _, _, _, _, info = self.env.step(action + 4)
-                    if "log" in info: 
-                        self.battle_log.append(info["log"])
-                        print(f"⚔ {info['log']}")
+                    if "log" in info: self.battle_log.append(info["log"])
                     
                     if self.env.mode == "MAP":
                         current_name = self.env.my_pokemon['name']
@@ -307,5 +411,5 @@ class GameVisualizer:
         pygame.quit()
 
 if __name__ == "__main__":
-    game = GameVisualizer(episode_to_load=3000)
+    game = GameVisualizer(episode_to_load=2000) 
     game.run()
