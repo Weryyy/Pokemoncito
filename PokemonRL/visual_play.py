@@ -59,7 +59,7 @@ class SpriteManager:
         except: return self.default
 
 class GameVisualizer:
-    def __init__(self, episode_to_load=500):
+    def __init__(self, episode_to_load=3000):
         pygame.init()
         self.screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
         pygame.display.set_caption("Pokémon AI: RPG Adventure")
@@ -68,18 +68,28 @@ class GameVisualizer:
         self.font_ui = pygame.font.SysFont("Arial", 20, bold=True)
         self.big_font = pygame.font.SysFont("Arial", 40, bold=True)
         
-        self.env = PokemonSimEnv(verbose=True)
+        # --- ACTIVAR LOGS AQUÍ ---
+        self.env = PokemonSimEnv(verbose=True) # <--- verbose=True para ver todo en consola
         self.sprites = SpriteManager()
         
         self.explorer = ExplorerAgent(obs_shape=(3, 10, 10), n_actions=4)
         self.tactician = TacticianAgent(input_dim=10, n_actions=5)
         self.strategist = Strategist(self.env.pokedex)
         
+        # Cargar Checkpoints (Ruta Absoluta Blindada)
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        checkpoint_dir = os.path.join(base_dir, "checkpoints")
+        exp_path = os.path.join(checkpoint_dir, f"explorer_ep{episode_to_load}.pth")
+        tac_path = os.path.join(checkpoint_dir, f"tactician_ep{episode_to_load}.pth")
+        
         try:
-            self.explorer.policy_net.load_state_dict(torch.load(f"checkpoints/explorer_ep{episode_to_load}.pth"))
-            self.tactician.policy_net.load_state_dict(torch.load(f"checkpoints/tactician_ep{episode_to_load}.pth"))
-            print(f"✅ Cerebros cargados (Ep {episode_to_load}).")
-        except: print("⚠ ERROR: No se encontraron checkpoints.")
+            self.explorer.policy_net.load_state_dict(torch.load(exp_path))
+            self.tactician.policy_net.load_state_dict(torch.load(tac_path))
+            print(f"✅ Cerebros cargados desde: {checkpoint_dir}")
+        except FileNotFoundError:
+            print(f"❌ ERROR: No se encuentra el archivo en: {exp_path}")
+        except Exception as e:
+            print(f"⚠ Error de carga: {e}")
             
         self.explorer.policy_net.eval()
         self.tactician.policy_net.eval()
@@ -124,11 +134,13 @@ class GameVisualizer:
         self.env.reset() 
         self.env.grid = np.array(ALL_MAPS[idx]) 
         self.battle_log.append(f"--- NIVEL {idx + 1} ---")
+        print(f"\n🗺 CARGANDO NIVEL {idx + 1}")
 
     def start_boss_battle(self):
         self.boss_mode = True
         self.env.mode = "COMBAT"
         self.battle_log.append("!!! ALERTA: LÍDER DE GIMNASIO !!!")
+        print("\n🏆 ¡HA LLEGADO EL MOMENTO! BATALLA FINAL CONTRA EL LÍDER.")
         self.boss_pokemon_idx = 0
         self.env.enemy_pokemon = self.enemy_gym_team[0].copy()
         self.env.max_hp_enemy = self.env.enemy_pokemon['stats']['hp']
@@ -218,11 +230,13 @@ class GameVisualizer:
                 if self.boss_mode:
                     if self.env.my_hp <= 0:
                         self.battle_log.append(f"{self.env.my_pokemon['name']} cayó!")
+                        print(f"❌ {self.env.my_pokemon['name']} ha sido debilitado.")
                         for p in self.my_full_team:
                             if p['name'] == self.env.my_pokemon['name']: p['stats']['hp'] = 0
                         candidates = [p for p in self.my_full_team if p['stats']['hp'] > 0]
                         if not candidates:
                             self.battle_log.append("¡TE HAN DERROTADO!")
+                            print("☠ GAME OVER - Sin Pokémon restantes.")
                             pygame.display.flip(); pygame.time.delay(3000); running = False
                             continue
                         self.strategist.current_party = {str(p['id']): p for p in self.my_full_team}
@@ -234,14 +248,17 @@ class GameVisualizer:
                         continue
                     if self.env.enemy_hp <= 0:
                         self.battle_log.append(f"Rival {self.env.enemy_pokemon['name']} cayó!")
+                        print(f"✅ ¡Rival {self.env.enemy_pokemon['name']} derrotado!")
                         self.boss_pokemon_idx += 1
                         if self.boss_pokemon_idx >= len(self.enemy_gym_team):
                             self.battle_log.append("¡¡¡ERES EL CAMPEÓN!!!")
+                            print("🏆 ¡¡¡CAMPEÓN DE LA LIGA POKÉMON!!! 🏆")
                             self.draw_game(); pygame.display.flip(); pygame.time.delay(5000); running = False
                             continue
                         self.env.enemy_pokemon = self.enemy_gym_team[self.boss_pokemon_idx].copy()
                         self.env.max_hp_enemy = self.env.enemy_pokemon['stats']['hp']
                         self.env.enemy_hp = self.env.max_hp_enemy
+                        print(f"⚡ Rival saca a {self.env.enemy_pokemon['name']}")
                         continue
                     with torch.no_grad():
                         st = self.env._get_combat_state()
@@ -255,21 +272,30 @@ class GameVisualizer:
                     with torch.no_grad():
                         st_t = torch.FloatTensor(self.env.map_state).unsqueeze(0).to(self.explorer.device)
                         q_vals = self.explorer.policy_net(st_t)
-                        # Parche 10%
-                        if np.random.rand() < 0.10: action = np.random.randint(0, 4)
-                        else: action = q_vals.argmax().item()
+                        action = q_vals.argmax().item()
+                        
+                        # LOG DE MOVIMIENTO
+                        move_names = ["ARRIBA", "ABAJO", "IZQUIERDA", "DERECHA"]
+                        print(f"🚶 Explorador decide: {move_names[action]}") # Descomentar si quieres spam de logs
+                        
                     _, _, done, _, info = self.env.step(action)
                     if done: 
                         self.battle_log.append("¡Nivel Superado!")
                         self.load_level(self.current_level_idx + 1)
-                    if self.env.mode == "COMBAT": self.battle_log.append(f"¡{self.env.enemy_pokemon['name']} salvaje!")
+                    if self.env.mode == "COMBAT": 
+                        self.battle_log.append(f"¡{self.env.enemy_pokemon['name']} salvaje!")
+                        print(f"⚠ ¡COMBATE SALVAJE! vs {self.env.enemy_pokemon['name']}")
+                        
                 elif self.env.mode == "COMBAT":
                     with torch.no_grad():
                         st = self.env._get_combat_state()
                         st_t = torch.FloatTensor(st).unsqueeze(0).to(self.tactician.device)
                         action = self.tactician.policy_net(st_t).argmax().item()
                     _, _, _, _, info = self.env.step(action + 4)
-                    if "log" in info: self.battle_log.append(info["log"])
+                    if "log" in info: 
+                        self.battle_log.append(info["log"])
+                        print(f"⚔ {info['log']}")
+                    
                     if self.env.mode == "MAP":
                         current_name = self.env.my_pokemon['name']
                         for p in self.my_full_team:
@@ -280,8 +306,5 @@ class GameVisualizer:
         pygame.quit()
 
 if __name__ == "__main__":
-    game = GameVisualizer(episode_to_load=500)
+    game = GameVisualizer(episode_to_load=3000)
     game.run()
-
-# Solo asegúrate de que al final del archivo llames a:
-# game = GameVisualizer(episode_to_load=XXX) con el numero de checkpoint que generes.
