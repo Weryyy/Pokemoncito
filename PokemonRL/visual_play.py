@@ -67,11 +67,20 @@ class GameRenderer:
         
         # Cargar Pesos
         try:
-            base = "checkpoints"
-            self.explorer.policy_net.load_state_dict(torch.load(f"{base}/explorer_ep2000.pth"))
-            self.tactician.policy_net.load_state_dict(torch.load(f"{base}/tactician_ep2000.pth"))
-        except: print("⚠ Sin pesos, usando IA aleatoria")
-        
+            # Obtenemos la ruta absoluta de la carpeta donde está este script (visual_play.py)
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            
+            # Construimos la ruta a la carpeta checkpoints
+            ckpt_path = os.path.join(base_dir, "checkpoints")
+
+            # Cargamos los archivos
+            self.explorer.policy_net.load_state_dict(torch.load(os.path.join(ckpt_path, "explorer_ep2000.pth")))
+            self.tactician.policy_net.load_state_dict(torch.load(os.path.join(ckpt_path, "tactician_ep2000.pth")))
+            
+            print(f"✅ ¡CEREBROS CARGADOS! Leyendo de: {ckpt_path}")
+        except Exception as e: 
+            print(f"⚠ ERROR CARGANDO PESOS: {e}")
+            print("⚠ Usando IA aleatoria (Esto explica por qué spamean Leer/Malicioso)")
         # MANAGER
         self.manager = GameManager(self.env, self.strategist, self.tactician, self.explorer)
         self.manager.init_game()

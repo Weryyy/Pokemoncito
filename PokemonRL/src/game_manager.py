@@ -81,12 +81,20 @@ class GameManager:
 
     def heal_team(self):
         self.potions = 10
+        print("\n🏥 --- REVISIÓN DE EQUIPO Y ATAQUES ---")
         for i, p in enumerate(self.my_team):
             # Regenerar manteniendo XP
             new_p = self.strategist.prepare_pokemon(p['id'], p['level'])
             new_p['exp'] = p['exp']
             self.my_team[i] = new_p
+            
+            # --- NUEVO: IMPRIMIR ATAQUES ACTUALES ---
+            moves = new_p.get('active_moves', [])
+            print(f"   🔹 {new_p['name']} (Nv.{new_p['level']}): {moves}")
+            # ----------------------------------------
+            
         self.update_active_pokemon()
+        print("🏥 -----------------------------------\n")
 
     def update_active_pokemon(self):
         # Busca el primero vivo para ponerlo de activo
@@ -219,7 +227,7 @@ class GameManager:
                 self.env.my_pokemon = new_p
                 self.env.my_hp = new_p['stats']['hp']
                 self.env.max_hp_my = new_p['stats']['hp']
-                
+
         if self.boss_mode:
             self.boss_idx += 1
             if self.boss_idx >= len(self.gym_team):
