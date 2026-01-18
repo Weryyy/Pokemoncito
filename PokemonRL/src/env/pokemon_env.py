@@ -156,20 +156,27 @@ class PokemonSimEnv(gym.Env):
 
     def _step_combat(self, action):
         if action < 4: return self._get_combat_state(), -0.5, False, False, {}
+        
+        # Usar movimientos del Pokemon activo
         idx = action - 4
-        dmg, _ = BattleEngine.calculate_damage(self.my_pokemon, self.enemy_pokemon, 60, ["normal","fire","water","grass","electric"][idx] if idx<5 else "normal")
+        moves = self.my_pokemon.get('active_moves', ['tackle'])
+        move = moves[idx] if idx < len(moves) else moves[0]
+        
+        dmg, msg = BattleEngine.calculate_damage(self.my_pokemon, self.enemy_pokemon, move)
         self.enemy_hp -= dmg
         
         if self.enemy_hp <= 0:
             self.mode = "MAP"
             exp = BattleEngine.get_exp_reward(self.enemy_pokemon)
             self.my_pokemon['exp'] += exp
-            msg = f"Ganaste +{exp} XP"
+            log_msg = f"Ganaste +{exp} XP"
             if self.my_pokemon['exp'] >= 100:
-                self.my_pokemon['level'] += 1; self.my_pokemon['exp'] = 0
+                self.my_pokemon['level'] += 1
+                self.my_pokemon['exp'] = 0
                 s = BattleEngine.get_stats_at_level(self.my_pokemon, self.my_pokemon['level'])
-                self.max_hp_my = s['hp']; self.my_hp = s['hp']
-                msg += " ¡NIVEL UP!"
+                self.max_hp_my = s['hp']
+                self.my_hp = s['hp']
+                log_msg += " ¡NIVEL UP!"
             
             # --- RECOMPENSA DE COMBATE ---
             # Muy alta si soy nivel bajo (quiero farmear)
@@ -177,13 +184,17 @@ class PokemonSimEnv(gym.Env):
             
             # ¡IMPORTANTE! Al volver al mapa, añadimos el frame actual a la pila
             self.frame_stack.append(self._get_map_state()) 
-            return self._get_stacked_state(), combat_reward, False, False, {"log": msg}
-            
-        enemy_type = self.enemy_pokemon['types'][0]
-        dmg_r, _ = BattleEngine.calculate_damage(self.enemy_pokemon, self.my_pokemon, 40, enemy_type)
+            return self._get_stacked_state(), combat_reward, False, False, {"log": log_msg}
+        
+        # Turno del enemigo
+        enemy_moves = self.enemy_pokemon.get('active_moves', ['tackle'])
+        enemy_move = enemy_moves[0] if enemy_moves else 'tackle'
+        dmg_r, enemy_msg = BattleEngine.calculate_damage(self.enemy_pokemon, self.my_pokemon, enemy_move)
         self.my_hp -= dmg_r
         
-        if self.my_hp <= 0: return self._get_combat_state(), -50, True, False, {"log": "Debilitado..."}
+        if self.my_hp <= 0: 
+            return self._get_combat_state(), -50, True, False, {"log": "Debilitado..."}
+        
         return self._get_combat_state(), dmg*0.05, False, False, {}
 
     def _get_combat_state(self):
