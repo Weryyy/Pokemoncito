@@ -15,6 +15,26 @@ except:
 
 STRUGGLE = {"type": "normal", "power": 50, "accuracy": 100, "class": "physical"}
 
+# --- HABILIDADES POKEMON ---
+ABILITIES_DB = {
+    'overgrow': {'type': 'boost', 'trigger': 'low_hp', 'boost_type': 'grass', 'multiplier': 1.5},
+    'blaze': {'type': 'boost', 'trigger': 'low_hp', 'boost_type': 'fire', 'multiplier': 1.5},
+    'torrent': {'type': 'boost', 'trigger': 'low_hp', 'boost_type': 'water', 'multiplier': 1.5},
+    'intimidate': {'type': 'entry', 'stat': 'attack', 'stage': -1},
+    'levitate': {'type': 'immunity', 'immune_to': 'ground'},
+    'lightning-rod': {'type': 'immunity', 'immune_to': 'electric'},
+    'water-absorb': {'type': 'absorb', 'absorb_type': 'water'},
+    'thick-fat': {'type': 'resist', 'resist_types': ['fire', 'ice'], 'multiplier': 0.5},
+}
+
+# --- OBJETOS EQUIPADOS ---
+HELD_ITEMS_DB = {
+    'sitrus-berry': {'type': 'heal', 'trigger': 'low_hp', 'heal_percent': 0.25},
+    'choice-band': {'type': 'stat_boost', 'stat': 'attack', 'multiplier': 1.5},
+    'leftovers': {'type': 'regen', 'heal_percent': 0.0625},
+    'focus-sash': {'type': 'survive', 'trigger': 'ohko'},
+}
+
 # --- LISTA BLANCA DE EFECTOS SOPORTADOS ---
 # Solo los movimientos que estén aquí O tengan daño > 0 serán usados.
 EFFECTS_DB = {
@@ -105,11 +125,22 @@ class BattleEngine:
         if move.get('power', 0) == 0:
             return BattleEngine.apply_effect(attacker, defender, move_name)
 
-        # 4. CÁLCULO DE DAÑO
+        # 4. INMUNIDAD POR HABILIDAD
+        ability = defender.get('ability')
+        if ability and ability in ABILITIES_DB:
+            ab_data = ABILITIES_DB[ability]
+            if ab_data.get('type') == 'immunity' and move['type'] == ab_data.get('immune_to'):
+                return 0, f"¡La habilidad {ability} de {defender['name']} evitó el ataque!"
+            if ab_data.get('type') == 'absorb' and move['type'] == ab_data.get('absorb_type'):
+                heal = int(defender['stats']['hp'] * 0.25)
+                defender['stats']['hp'] = min(defender['stats']['hp'] + heal, 
+                                            BattleEngine.get_stats_at_level(defender, defender['level'])['hp'])
+                return 0, f"¡{defender['name']} absorbió el ataque!"
+
+        # 5. CÁLCULO DE DAÑO
         level = attacker.get('level', 5)
         
         # Stages (-6 a +6) -> Multiplicador
-        # Fórmula simple: (2 + stage) / 2 para positivos, 2 / (2 + abs(stage)) para negativos
         atk_st = attacker.get('modifiers', {}).get('attack', 0)
         def_st = defender.get('modifiers', {}).get('defense', 0)
         
@@ -119,12 +150,25 @@ class BattleEngine:
         att_stat = attacker['stats'].get('attack', 10) * atk_mult
         def_stat = defender['stats'].get('defense', 10) * def_mult
         
+        # Held Item: Choice Band
+        held_item = attacker.get('held_item')
+        if held_item == 'choice-band' and move.get('class') == 'physical':
+            att_stat *= 1.5
+        
         if move.get('class') == 'special':
-            # Simplificación: Usamos special-attack sin stages por ahora
             att_stat = attacker['stats'].get('special-attack', 10) 
             def_stat = defender['stats'].get('special-defense', 10)
 
         stab = 1.5 if move['type'] in attacker['types'] else 1.0
+        
+        # Habilidad: Overgrow, Blaze, Torrent
+        ability = attacker.get('ability')
+        if ability and ability in ABILITIES_DB:
+            ab_data = ABILITIES_DB[ability]
+            if ab_data.get('type') == 'boost' and ab_data.get('trigger') == 'low_hp':
+                max_hp = BattleEngine.get_stats_at_level(attacker, attacker['level'])['hp']
+                if attacker['stats']['hp'] < max_hp * 0.33 and move['type'] == ab_data.get('boost_type'):
+                    stab *= ab_data.get('multiplier', 1.5)
         
         multiplier = 1.0
         for dt in defender['types']:
@@ -133,7 +177,19 @@ class BattleEngine:
             if m_type in BattleEngine.TYPE_CHART and dt_name in BattleEngine.TYPE_CHART[m_type]:
                 multiplier *= BattleEngine.TYPE_CHART[m_type][dt_name]
         
-        critical = 1.5 if random.random() < 0.06 else 1.0
+        # Habilidad: Thick-Fat
+        def_ability = defender.get('ability')
+        if def_ability and def_ability in ABILITIES_DB:
+            ab_data = ABILITIES_DB[def_ability]
+            if ab_data.get('type') == 'resist' and move['type'] in ab_data.get('resist_types', []):
+                multiplier *= ab_data.get('multiplier', 0.5)
+        
+        # Crítico mejorado (Focus Energy aumenta probabilidad)
+        crit_chance = 0.0625  # ~6.25%
+        if attacker.get('focus_energy', False):
+            crit_chance = 0.25  # 25% con Focus Energy
+        critical = 2.0 if random.random() < crit_chance else 1.0
+        
         random_factor = random.uniform(0.85, 1.0)
 
         damage = (((2 * level / 5 + 2) * move.get('power', 40) * (att_stat / def_stat)) / 50 + 2)
@@ -144,8 +200,11 @@ class BattleEngine:
             damage *= 0.5
 
         msg = ""
-        if multiplier > 1.2: msg = "(Eficaz!)"
-        elif multiplier < 0.8: msg = "(No eficaz)"
+        if critical > 1.5: msg = "(¡Golpe crítico!)"
+        elif multiplier > 1.5: msg = "(¡Súper eficaz!)"
+        elif multiplier > 1.0: msg = "(Eficaz)"
+        elif multiplier < 0.5: msg = "(Casi no afecta...)"
+        elif multiplier < 1.0: msg = "(No muy eficaz)"
         
         return int(max(1, damage)), msg
 
@@ -166,9 +225,13 @@ class BattleEngine:
             target['stats']['hp'] = min(max_hp, target['stats']['hp'] + heal)
             return 0, f"¡Recuperó {heal} PS!"
 
-        if 'special' in effect and effect['special'] == 'protect':
-            target['is_protected'] = True
-            return 0, "¡Se prepara para protegerse!"
+        if 'special' in effect:
+            if effect['special'] == 'protect':
+                target['is_protected'] = True
+                return 0, "¡Se prepara para protegerse!"
+            elif effect['special'] == 'crit':
+                target['focus_energy'] = True
+                return 0, "¡Se está concentrando!"
 
         if 'stat' in effect:
             stat = effect['stat']
@@ -214,3 +277,37 @@ class BattleEngine:
             winner['modifiers'] = {}
             
         return xp_gain, leveled_up, old_stats
+    
+    @staticmethod
+    def process_held_item(pokemon, trigger='turn_end'):
+        """Procesa efectos de objetos equipados"""
+        held_item = pokemon.get('held_item')
+        if not held_item or held_item not in HELD_ITEMS_DB:
+            return ""
+        
+        item_data = HELD_ITEMS_DB[held_item]
+        
+        # Leftovers: Regeneración al final del turno
+        if trigger == 'turn_end' and item_data.get('type') == 'regen':
+            max_hp = BattleEngine.get_stats_at_level(pokemon, pokemon['level'])['hp']
+            current_hp = pokemon['stats']['hp']
+            if current_hp < max_hp and current_hp > 0:
+                heal = int(max_hp * item_data.get('heal_percent', 0.0625))
+                pokemon['stats']['hp'] = min(max_hp, current_hp + heal)
+                return f"¡{pokemon['name']} recuperó {heal} PS con Leftovers!"
+        
+        # Sitrus Berry: Curación automática con HP bajo
+        if trigger == 'damage_taken' and item_data.get('type') == 'heal':
+            max_hp = BattleEngine.get_stats_at_level(pokemon, pokemon['level'])['hp']
+            if pokemon['stats']['hp'] < max_hp * 0.5:
+                heal = int(max_hp * item_data.get('heal_percent', 0.25))
+                pokemon['stats']['hp'] = min(max_hp, pokemon['stats']['hp'] + heal)
+                pokemon['held_item'] = None  # Se consume
+                return f"¡{pokemon['name']} usó Sitrus Berry y recuperó {heal} PS!"
+        
+        return ""
+    
+    @staticmethod
+    def get_exp_reward(enemy):
+        """Calcula la experiencia que da un enemigo derrotado"""
+        return enemy.get('level', 1) * 50

@@ -3,7 +3,26 @@ import torch.optim as optim
 import torch.nn as nn
 import random
 import numpy as np
+from collections import deque
 from src.models.dqn_combat import CombatDQN
+
+
+class ReplayBuffer:
+    """Experience replay buffer for better learning stability"""
+    def __init__(self, capacity=10000):
+        self.buffer = deque(maxlen=capacity)
+    
+    def push(self, state, action, reward, next_state, done):
+        self.buffer.append((state, action, reward, next_state, done))
+    
+    def sample(self, batch_size):
+        batch = random.sample(self.buffer, batch_size)
+        states, actions, rewards, next_states, dones = zip(*batch)
+        return (np.array(states), np.array(actions), np.array(rewards), 
+                np.array(next_states), np.array(dones))
+    
+    def __len__(self):
+        return len(self.buffer)
 
 
 class TacticianAgent:
@@ -12,12 +31,24 @@ class TacticianAgent:
             "cuda" if torch.cuda.is_available() else "cpu")
         self.n_actions = n_actions
 
+        # DQN con Target Network
         self.policy_net = CombatDQN(input_dim, n_actions).to(self.device)
+        self.target_net = CombatDQN(input_dim, n_actions).to(self.device)
+        self.target_net.load_state_dict(self.policy_net.state_dict())
+        self.target_net.eval()
+        
         self.optimizer = optim.Adam(self.policy_net.parameters(), lr=lr)
         self.loss_fn = nn.MSELoss()
 
+        # Experience Replay
+        self.replay_buffer = ReplayBuffer(capacity=10000)
+        self.batch_size = 32
+        self.target_update_frequency = 100
+        self.learn_step_counter = 0
+
+        # Hiperparámetros mejorados
         self.epsilon = 1.0
-        self.epsilon_min = 0.05
+        self.epsilon_min = 0.1
         self.epsilon_decay = 0.995
         self.gamma = 0.95
 
@@ -34,56 +65,47 @@ class TacticianAgent:
 
     def learn(self, state, action, reward, next_state, done):
         try:
-            # 1. Preparar Tensores
-            state_t = torch.FloatTensor(state).to(self.device)
-            if state_t.dim() == 1:
-                state_t = state_t.unsqueeze(0)
+            # Almacenar en buffer
+            self.replay_buffer.push(state, action, reward, next_state, done)
+            
+            # Solo entrenar si tenemos suficientes muestras
+            if len(self.replay_buffer) < self.batch_size:
+                return
+            
+            # Muestrear batch del replay buffer
+            states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size)
+            
+            states_t = torch.FloatTensor(states).to(self.device)
+            next_states_t = torch.FloatTensor(next_states).to(self.device)
+            actions_t = torch.LongTensor(actions).unsqueeze(1).to(self.device)
+            rewards_t = torch.FloatTensor(rewards).to(self.device)
+            dones_t = torch.FloatTensor(dones).to(self.device)
 
-            next_state_t = torch.FloatTensor(next_state).to(self.device)
-            if next_state_t.dim() == 1:
-                next_state_t = next_state_t.unsqueeze(0)
+            # Q-values actuales
+            q_values = self.policy_net(states_t)
+            q_val = q_values.gather(1, actions_t).squeeze(1)
 
-            # 2. Preparar Acción (El culpable habitual)
-            action_t = torch.tensor(
-                [[action]], dtype=torch.long).to(self.device)
-
-            reward_t = torch.FloatTensor([reward]).to(self.device)
-            done_t = torch.FloatTensor([1.0 if done else 0.0]).to(self.device)
-
-            # 3. Calcular Q-Values
-            q_values = self.policy_net(state_t)
-
-            # --- ZONA DE DEBUG ---
-            # Si las dimensiones no coinciden, imprimimos chivatazo antes del error
-            if q_values.dim() != action_t.dim():
-                print("\n" + "="*30)
-                print("🚨 --- DEBUG ERROR DETECTADO --- 🚨")
-                print(f"Input Action (raw): {action}")
-                print(
-                    f"Tensor Q_Values Shape: {q_values.shape} | Dims: {q_values.dim()}")
-                print(
-                    f"Tensor Action Shape:   {action_t.shape} | Dims: {action_t.dim()}")
-                print("La función .gather() va a fallar ahora mismo.")
-                print("="*30 + "\n")
-
-            # 4. Gather y Loss
-            q_val = q_values.gather(1, action_t).squeeze(1)
-
+            # Q-values objetivo usando target network
             with torch.no_grad():
-                next_q_values = self.policy_net(next_state_t)
+                next_q_values = self.target_net(next_states_t)
                 max_next_q = next_q_values.max(1)[0]
-                target = reward_t + (1 - done_t) * self.gamma * max_next_q
+                target = rewards_t + (1 - dones_t) * self.gamma * max_next_q
 
             loss = self.loss_fn(q_val, target)
 
             self.optimizer.zero_grad()
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), 1.0)
             self.optimizer.step()
+            
+            # Actualizar target network periódicamente
+            self.learn_step_counter += 1
+            if self.learn_step_counter % self.target_update_frequency == 0:
+                self.target_net.load_state_dict(self.policy_net.state_dict())
 
         except Exception as e:
-            # Si falla algo más, lo atrapamos aquí
             print(f"❌ Error crítico en learn(): {e}")
-            raise e  # Lanzamos el error igual para que pare el programa
+            raise e
 
     def decay_epsilon(self):
         if self.epsilon > self.epsilon_min:

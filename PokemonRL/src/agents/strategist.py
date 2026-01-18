@@ -2,7 +2,18 @@ import numpy as np
 import json
 import os
 import random
-from src.env.battle_engine import BattleEngine, EFFECTS_DB  # <--- Importamos la Lista Blanca
+from src.env.battle_engine import BattleEngine, EFFECTS_DB, ABILITIES_DB, HELD_ITEMS_DB
+
+# Mapeo de Pokémon ID a habilidades comunes
+POKEMON_ABILITIES = {
+    '1': 'overgrow', '2': 'overgrow', '3': 'overgrow',  # Bulbasaur line
+    '4': 'blaze', '5': 'blaze', '6': 'blaze',  # Charmander line
+    '7': 'torrent', '8': 'torrent', '9': 'torrent',  # Squirtle line
+    '25': 'lightning-rod',  # Pikachu
+    '26': 'lightning-rod',  # Raichu
+    '81': 'levitate',  # Magnemite
+    '82': 'levitate',  # Magneton
+}
 
 class Strategist:
     def __init__(self, pokedex):
@@ -132,6 +143,20 @@ class Strategist:
         
         # Elegir Movimientos
         p['active_moves'] = self.select_moves(p, level)
+        
+        # Asignar Habilidad si corresponde
+        if pid in POKEMON_ABILITIES:
+            p['ability'] = POKEMON_ABILITIES[pid]
+        
+        # Asignar objeto equipado (aleatorio para variedad)
+        if level >= 10 and random.random() < 0.3:  # 30% de probabilidad
+            p['held_item'] = random.choice(['sitrus-berry', 'leftovers', 'choice-band'])
+        
+        # Inicializar estados
+        p['status_condition'] = None
+        p['modifiers'] = {}
+        p['is_protected'] = False
+        p['focus_energy'] = False
         
         return p
 
