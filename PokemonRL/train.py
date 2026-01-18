@@ -2,6 +2,8 @@ import torch
 import numpy as np
 import os
 import sys
+import time
+from datetime import timedelta
 from src.env.pokemon_env import PokemonSimEnv
 from src.agents.explorer import ExplorerAgent
 from src.agents.tactician import TacticianAgent
@@ -24,6 +26,15 @@ def save_checkpoint(explorer, tactician, episode):
 
 def train():
     print("🚀 INICIANDO ENTRENAMIENTO MEJORADO (Anti-Overfitting)...")
+    
+    # Detectar y mostrar dispositivo (GPU/CPU)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        print(f"🎮 GPU DETECTADA: {torch.cuda.get_device_name(0)}")
+        print(f"   Memoria GPU disponible: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
+    else:
+        print(f"💻 Usando CPU (para usar GPU, instala PyTorch con soporte CUDA)")
+    
     env = PokemonSimEnv(verbose=False)
     
     # Inicializar agentes con arquitecturas mejoradas
@@ -33,9 +44,14 @@ def train():
 
     best_reward = -float('inf')
     rewards_history = []
+    
+    # Variables para timing y ETA
+    start_time = time.time()
+    episode_times = []
 
     try: 
         for episode in range(1, EPISODES + 1):
+            episode_start = time.time()
             
             # Curriculum Learning más suave
             if episode < 500: map_idx = 0
@@ -99,10 +115,28 @@ def train():
                 tactician.epsilon *= 0.9993
             
             rewards_history.append(total_reward)
+            
+            # Calcular tiempo del episodio
+            episode_time = time.time() - episode_start
+            episode_times.append(episode_time)
+            
+            # Calcular ETA (usando promedio de últimos 50 episodios)
+            if len(episode_times) > 0:
+                avg_episode_time = np.mean(episode_times[-50:])
+                remaining_episodes = EPISODES - episode
+                eta_seconds = avg_episode_time * remaining_episodes
+                eta_str = str(timedelta(seconds=int(eta_seconds)))
+                
+                elapsed_time = time.time() - start_time
+                elapsed_str = str(timedelta(seconds=int(elapsed_time)))
+            else:
+                eta_str = "Calculando..."
+                elapsed_str = "0:00:00"
 
             if episode % 10 == 0:
                 avg_reward = np.mean(rewards_history[-100:]) if len(rewards_history) >= 100 else np.mean(rewards_history)
                 print(f"Ep {episode}/{EPISODES} | Mapa {map_idx} | R: {total_reward:.1f} | Avg100: {avg_reward:.1f} | Eps: {explorer.epsilon:.3f}")
+                print(f"⏱️  Tiempo: {elapsed_str} | ETA: {eta_str} | Ep/s: {1/avg_episode_time:.2f}")
                 
                 # Guardar mejor modelo
                 if avg_reward > best_reward:
@@ -111,6 +145,7 @@ def train():
 
             if episode % SAVE_INTERVAL == 0:
                 save_checkpoint(explorer, tactician, episode)
+                print(f"📊 Progreso: {episode/EPISODES*100:.1f}% | Tiempo transcurrido: {elapsed_str} | Tiempo restante estimado: {eta_str}")
 
     except KeyboardInterrupt:
         print("\n🛑 GUARDANDO...")
@@ -118,7 +153,13 @@ def train():
         sys.exit(0)
 
     save_checkpoint(explorer, tactician, EPISODES)
-    print(f"\n✅ ENTRENAMIENTO COMPLETADO! Mejor recompensa promedio: {best_reward:.2f}")
+    
+    total_time = time.time() - start_time
+    total_time_str = str(timedelta(seconds=int(total_time)))
+    print(f"\n✅ ENTRENAMIENTO COMPLETADO!")
+    print(f"   Tiempo total: {total_time_str}")
+    print(f"   Mejor recompensa promedio: {best_reward:.2f}")
+    print(f"   Tiempo promedio por episodio: {np.mean(episode_times):.2f}s")
 
 if __name__ == "__main__":
     train()
