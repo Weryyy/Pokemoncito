@@ -276,7 +276,7 @@ class GameManager:
             st_t = torch.FloatTensor(self.env._get_stacked_state()).unsqueeze(0).to(self.explorer.device)
             q_vals = self.explorer.policy_net(st_t).cpu().numpy()[0].copy()
             
-            # MÁSCARAS LÓGICAS
+            # MÁSCARAS LÓGICAS REDUCIDAS (menos determinismo)
             y, x = self.env.player_pos
             
             for a in range(4):
@@ -289,28 +289,29 @@ class GameManager:
                 
                 coord = (ty, tx)
                 
-                # Paredes / Bloqueos
-                if coord in self.blocked_cells: 
+                # Solo bloquear paredes realmente sólidas (menos agresivo)
+                if coord in self.blocked_cells and self.wall_hits.get(coord, 0) > 5: 
                     q_vals[a] = -99999
                     continue
                 
-                # Zanahoria (Hierba)
+                # Bonificación suave para hierba en modo farmeo (no zanahoria)
                 if 0 <= tx < 10 and 0 <= ty < 10:
                     is_grass = (self.env.grid[ty][tx] == 2)
                     if self.farming_mode and is_grass:
-                        q_vals[a] += 5000
+                        q_vals[a] += 500  # Reducido de 5000
                     if not self.farming_mode and is_grass:
-                        q_vals[a] -= 5000 # Repelente
+                        q_vals[a] -= 300  # Reducido de 5000
                         
-                # Aburrimiento
+                # Penalización SUAVE por visitas (menos sticky floor)
                 vis = self.visit_counts.get(coord, 0)
-                if vis > 0: q_vals[a] -= (vis**2) * 5
+                if vis > 0: 
+                    q_vals[a] -= vis * 0.5  # Reducido dramáticamente de vis**2 * 5
             
             action = np.argmax(q_vals)
             
-            # Anti-Bucle
+            # Anti-Bucle más permisivo
             self.action_history.append(action)
-            if len(self.action_history) >= 10 and len(set(self.action_history)) == 1:
+            if len(self.action_history) >= 15 and len(set(self.action_history)) == 1:
                 action = np.random.randint(0,4)
                 self.action_history.clear()
                 
