@@ -30,7 +30,7 @@ def train():
     
     # Inicializar agentes con arquitecturas mejoradas
     explorer = ExplorerAgent(obs_shape=(9, 10, 10), n_actions=4, lr=1e-4)
-    tactician = TacticianAgent(input_dim=10, n_actions=5, lr=1e-3)
+    tactician = TacticianAgent(input_dim=16, n_actions=5, lr=1e-3)  # Actualizado a 16
     strategist = Strategist(env.pokedex)
 
     best_reward = -float('inf')

@@ -62,7 +62,7 @@ class GameRenderer:
         # INICIALIZAR SISTEMA
         self.env = PokemonSimEnv(verbose=False)
         self.explorer = ExplorerAgent((9, 10, 10), 4)
-        self.tactician = TacticianAgent(10, 5)
+        self.tactician = TacticianAgent(16, 5)  # Actualizado a 16
         self.strategist = Strategist(self.env.pokedex)
         
         # Cargar Pesos
