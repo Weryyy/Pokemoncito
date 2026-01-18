@@ -72,8 +72,12 @@ class TacticianAgent:
             if len(self.replay_buffer) < self.batch_size:
                 return
             
-            # Muestrear batch del replay buffer
-            states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size)
+            # Muestrear batch del replay buffer con manejo de errores
+            try:
+                states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size)
+            except (ValueError, IndexError) as e:
+                # Si falla el muestreo, esperar más samples
+                return
             
             states_t = torch.FloatTensor(states).to(self.device)
             next_states_t = torch.FloatTensor(next_states).to(self.device)

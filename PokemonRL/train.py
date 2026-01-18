@@ -17,11 +17,9 @@ def save_checkpoint(explorer, tactician, episode):
     path = os.path.join(base_dir, "checkpoints")
     if not os.path.exists(path): os.makedirs(path)
     
-    # Guardar tanto policy_net como target_net
+    # Solo guardar policy nets (target nets se pueden reconstruir)
     torch.save(explorer.policy_net.state_dict(), os.path.join(path, f"explorer_ep{episode}.pth"))
-    torch.save(explorer.target_net.state_dict(), os.path.join(path, f"explorer_target_ep{episode}.pth"))
     torch.save(tactician.policy_net.state_dict(), os.path.join(path, f"tactician_ep{episode}.pth"))
-    torch.save(tactician.target_net.state_dict(), os.path.join(path, f"tactician_target_ep{episode}.pth"))
     print(f"💾 CHECKPOINT GUARDADO: Episodio {episode}")
 
 def train():

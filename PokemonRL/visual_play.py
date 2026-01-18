@@ -268,6 +268,7 @@ class GameRenderer:
         for i, move in enumerate(moves[:4]):
             # Cargar info del movimiento si existe
             move_info = ""
+            mtype = 'normal'  # Default type
             if hasattr(self.strategist, 'moves_db') and move in self.strategist.moves_db:
                 mdata = self.strategist.moves_db[move]
                 power = mdata.get('power', 0)
@@ -279,7 +280,7 @@ class GameRenderer:
             else:
                 move_info = move[:10]
             
-            type_col = self.get_type_color(mtype if 'mtype' in locals() else 'normal')
+            type_col = self.get_type_color(mtype)
             move_txt = self.font.render(move_info, True, type_col)
             self.screen.blit(move_txt, (x_start + 100, y_start + (i+1)*15))
     

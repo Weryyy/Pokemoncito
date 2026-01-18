@@ -141,6 +141,9 @@ class Strategist:
         # Calcular Stats
         p['stats'] = BattleEngine.get_stats_at_level(p, level)
         
+        # Cachear max_hp para evitar recalcular
+        p['max_hp'] = p['stats']['hp']
+        
         # Elegir Movimientos
         p['active_moves'] = self.select_moves(p, level)
         

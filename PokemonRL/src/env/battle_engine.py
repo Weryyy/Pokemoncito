@@ -220,7 +220,10 @@ class BattleEngine:
         if 'modifiers' not in target: target['modifiers'] = {}
         
         if 'heal' in effect:
-            max_hp = BattleEngine.get_stats_at_level(target, target['level'])['hp']
+            # Usar max_hp cacheado si está disponible
+            max_hp = target.get('max_hp')
+            if max_hp is None:
+                max_hp = BattleEngine.get_stats_at_level(target, target['level'])['hp']
             heal = int(max_hp * effect['heal'])
             target['stats']['hp'] = min(max_hp, target['stats']['hp'] + heal)
             return 0, f"¡Recuperó {heal} PS!"
@@ -287,9 +290,13 @@ class BattleEngine:
         
         item_data = HELD_ITEMS_DB[held_item]
         
+        # Usar max_hp cacheado si está disponible
+        max_hp = pokemon.get('max_hp')
+        if max_hp is None:
+            max_hp = BattleEngine.get_stats_at_level(pokemon, pokemon['level'])['hp']
+        
         # Leftovers: Regeneración al final del turno
         if trigger == 'turn_end' and item_data.get('type') == 'regen':
-            max_hp = BattleEngine.get_stats_at_level(pokemon, pokemon['level'])['hp']
             current_hp = pokemon['stats']['hp']
             if current_hp < max_hp and current_hp > 0:
                 heal = int(max_hp * item_data.get('heal_percent', 0.0625))
@@ -298,7 +305,6 @@ class BattleEngine:
         
         # Sitrus Berry: Curación automática con HP bajo
         if trigger == 'damage_taken' and item_data.get('type') == 'heal':
-            max_hp = BattleEngine.get_stats_at_level(pokemon, pokemon['level'])['hp']
             if pokemon['stats']['hp'] < max_hp * 0.5:
                 heal = int(max_hp * item_data.get('heal_percent', 0.25))
                 pokemon['stats']['hp'] = min(max_hp, pokemon['stats']['hp'] + heal)
