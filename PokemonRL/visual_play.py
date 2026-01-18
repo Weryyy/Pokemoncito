@@ -74,8 +74,8 @@ class GameRenderer:
             ckpt_path = os.path.join(base_dir, "checkpoints")
 
             # Cargamos los archivos
-            self.explorer.policy_net.load_state_dict(torch.load(os.path.join(ckpt_path, "explorer_ep2000.pth")))
-            self.tactician.policy_net.load_state_dict(torch.load(os.path.join(ckpt_path, "tactician_ep2000.pth")))
+            self.explorer.policy_net.load_state_dict(torch.load(os.path.join(ckpt_path, "explorer_ep3000.pth")))
+            self.tactician.policy_net.load_state_dict(torch.load(os.path.join(ckpt_path, "tactician_ep3000.pth")))
             
             print(f"✅ ¡CEREBROS CARGADOS! Leyendo de: {ckpt_path}")
         except Exception as e: 
