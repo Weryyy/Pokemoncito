@@ -91,16 +91,16 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 
 ## 🎮 Uso
 
-### 🌐 Interfaz Web con Streamlit (NUEVO)
+### 📊 Dashboard de Estadísticas con Streamlit (NUEVO v2.1)
 
-La forma más fácil y moderna de usar Pokemoncito es a través de la **interfaz web con Streamlit**. Esta interfaz proporciona:
+La interfaz web de Streamlit ahora es un **dashboard de estadísticas** que te permite analizar todas tus partidas con gráficas interactivas y KPIs detallados:
 
-- **Modo Entrenamiento**: Entrena los agentes con parámetros configurables (TOTAL_EPISODES, BATCH_SIZE, MAX_STEPS)
-- **Modo Visualización**: Observa el comportamiento del agente paso a paso con visualización del mapa y estado de combate
-- **Persistencia**: Los modelos y el estado del entorno se mantienen entre interacciones usando `st.session_state`
-- **Métricas en vivo**: Gráficos de recompensas y epsilon durante el entrenamiento
+- **📈 Resumen General**: KPIs globales, evolución del win rate, daño total, movimientos más usados
+- **🎯 Análisis Individual**: Análisis detallado de cada partida con progresión de mapas y efectividad de movimientos  
+- **📊 Comparación**: Compara múltiples partidas con gráficas de radar y tablas comparativas
+- **🏆 Rankings**: Mejores records en win rate, daño, críticos, velocidad, y más
 
-#### Ejecutar la Interfaz Web
+#### Ejecutar el Dashboard
 
 ```bash
 # Desde el directorio raíz del proyecto
@@ -109,16 +109,21 @@ streamlit run streamlit_app.py
 
 La aplicación se abrirá automáticamente en tu navegador en `http://localhost:8501`
 
-**Capturas de pantalla:**
+**Nota**: Las estadísticas se guardan automáticamente al completar una partida (derrotar al boss final). Consulta [ESTADISTICAS_README.md](ESTADISTICAS_README.md) para más detalles.
 
-**Modo Entrenamiento:**
-![Modo Entrenamiento](https://github.com/user-attachments/assets/b34bd8cc-19c8-4d9f-a22d-5b9a11f11d2c)
+### 🌐 Interfaz Web con Streamlit (LEGACY)
 
-**Modo Visualización:**
-![Modo Visualización](https://github.com/user-attachments/assets/98fcbe79-e6f1-4a01-bc8e-dae8e661428d)
+La versión anterior del dashboard (modo entrenamiento y visualización) está disponible como `streamlit_app_old.py`:
 
-**Visualización con Mapa:**
-![Visualización con Mapa](https://github.com/user-attachments/assets/ad1a27d1-fc3d-4024-831e-b67668a1582e)
+- **Modo Entrenamiento**: Entrena los agentes con parámetros configurables (TOTAL_EPISODES, BATCH_SIZE, MAX_STEPS)
+- **Modo Visualización**: Observa el comportamiento del agente paso a paso con visualización del mapa y estado de combate
+- **Persistencia**: Los modelos y el estado del entorno se mantienen entre interacciones usando `st.session_state`
+- **Métricas en vivo**: Gráficos de recompensas y epsilon durante el entrenamiento
+
+```bash
+# Para usar la versión legacy
+streamlit run streamlit_app_old.py
+```
 
 ### 🐳 Uso con Docker (NUEVO)
 

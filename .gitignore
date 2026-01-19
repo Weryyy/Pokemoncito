@@ -47,3 +47,6 @@ Thumbs.db
 
 # Docker
 docker-compose.override.yml
+
+# Game statistics (user data)
+game_statistics/
