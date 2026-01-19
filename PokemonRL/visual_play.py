@@ -65,6 +65,9 @@ class GameRenderer:
         self.tactician = TacticianAgent(16, 5)  # Actualizado a 16
         self.strategist = Strategist(self.env.pokedex)
         
+        # Determinar el dispositivo (CPU o CUDA) una sola vez
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
         # Cargar Pesos
         try:
             # Obtenemos la ruta absoluta de la carpeta donde está este script (visual_play.py)
@@ -72,12 +75,17 @@ class GameRenderer:
             
             # Construimos la ruta a la carpeta checkpoints
             ckpt_path = os.path.join(base_dir, "checkpoints")
-
-            # Cargamos los archivos
-            self.explorer.policy_net.load_state_dict(torch.load(os.path.join(ckpt_path, "explorer_ep3000.pth")))
-            self.tactician.policy_net.load_state_dict(torch.load(os.path.join(ckpt_path, "tactician_ep3000.pth")))
+            
+            # Cargamos los archivos con map_location para compatibilidad CPU/GPU
+            self.explorer.policy_net.load_state_dict(
+                torch.load(os.path.join(ckpt_path, "explorer_ep3000.pth"), map_location=self.device)
+            )
+            self.tactician.policy_net.load_state_dict(
+                torch.load(os.path.join(ckpt_path, "tactician_ep3000.pth"), map_location=self.device)
+            )
             
             print(f"✅ ¡CEREBROS CARGADOS! Leyendo de: {ckpt_path}")
+            print(f"🖥️  Dispositivo: {self.device}")
         except Exception as e: 
             print(f"⚠ ERROR CARGANDO PESOS: {e}")
             print("⚠ Usando IA aleatoria (Esto explica por qué spamean Leer/Malicioso)")
