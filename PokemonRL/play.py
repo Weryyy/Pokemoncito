@@ -26,11 +26,15 @@ def play():
     # Ej: explorer_ep500.pth
     try:
         episode_num = 500  # <--- CAMBIA ESTO POR EL QUE TENGAS
+        # Determinar el dispositivo (CPU o CUDA)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
         explorer.policy_net.load_state_dict(torch.load(
-            f"checkpoints/explorer_ep{episode_num}.pth"))
+            f"checkpoints/explorer_ep{episode_num}.pth", map_location=device))
         tactician.policy_net.load_state_dict(torch.load(
-            f"checkpoints/tactician_ep{episode_num}.pth"))
+            f"checkpoints/tactician_ep{episode_num}.pth", map_location=device))
         print(f"✅ Modelos del episodio {episode_num} cargados.")
+        print(f"🖥️  Dispositivo: {device}")
     except FileNotFoundError:
         print("❌ No se encontraron modelos entrenados. Jugando con cerebros aleatorios.")
 
