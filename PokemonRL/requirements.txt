@@ -5,3 +5,6 @@ requests
 matplotlib
 pygame
 streamlit>=1.20.0,<2.0.0
+folium
+streamlit-folium
+altair
