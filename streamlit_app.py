@@ -68,8 +68,8 @@ def load_checkpoints(explorer, tactician, episode_num=3000):
         tactician_path = os.path.join(base_dir, f"tactician_ep{episode_num}.pth")
         
         if os.path.exists(explorer_path) and os.path.exists(tactician_path):
-            explorer.policy_net.load_state_dict(torch.load(explorer_path, map_location=device))
-            tactician.policy_net.load_state_dict(torch.load(tactician_path, map_location=device))
+            explorer.policy_net.load_state_dict(torch.load(explorer_path, map_location=device, weights_only=True))
+            tactician.policy_net.load_state_dict(torch.load(tactician_path, map_location=device, weights_only=True))
             return True
         return False
     except Exception as e:
@@ -236,11 +236,12 @@ if mode == "Modo Entrenamiento":
                             ax1.plot(st.session_state.training_history['episodes'], 
                                    st.session_state.training_history['rewards'], alpha=0.3)
                             if len(st.session_state.training_history['rewards']) >= 10:
-                                # Moving average
+                                # Moving average - compute only when needed for display
                                 window = min(10, len(st.session_state.training_history['rewards']))
-                                rewards_ma = np.convolve(st.session_state.training_history['rewards'], 
+                                rewards_array = np.array(st.session_state.training_history['rewards'])
+                                rewards_ma = np.convolve(rewards_array, 
                                                         np.ones(window)/window, mode='valid')
-                                ax1.plot(range(window, len(st.session_state.training_history['rewards'])+1), 
+                                ax1.plot(range(window, len(rewards_array)+1), 
                                        rewards_ma, 'r-', linewidth=2)
                             ax1.set_xlabel('Episodio')
                             ax1.set_ylabel('Reward')
