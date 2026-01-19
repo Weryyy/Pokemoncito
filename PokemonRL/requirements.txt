@@ -4,4 +4,4 @@ numpy
 requests
 matplotlib
 pygame
-requests
+streamlit
