@@ -2,46 +2,67 @@ import torch
 import numpy as np
 import os
 import sys
+import time
+from datetime import timedelta
 from src.env.pokemon_env import PokemonSimEnv
 from src.agents.explorer import ExplorerAgent
 from src.agents.tactician import TacticianAgent
 from src.agents.strategist import Strategist
 
-# --- AJUSTES PARA VERSIÓN CON MEMORIA ---
-EPISODES = 2000        # Aumentamos duración
-MAX_STEPS = 300        # Damos más tiempo por episodio
-SAVE_INTERVAL = 200    # Guardamos menos a menudo para no llenar el disco
+# --- AJUSTES MEJORADOS PARA ENTRENAMIENTO ---
+EPISODES = 3000        # Más episodios para mejor convergencia
+MAX_STEPS = 300
+SAVE_INTERVAL = 200
 
 def save_checkpoint(explorer, tactician, episode):
     base_dir = os.path.dirname(os.path.abspath(__file__))
     path = os.path.join(base_dir, "checkpoints")
     if not os.path.exists(path): os.makedirs(path)
     
+    # Solo guardar policy nets (target nets se pueden reconstruir)
     torch.save(explorer.policy_net.state_dict(), os.path.join(path, f"explorer_ep{episode}.pth"))
     torch.save(tactician.policy_net.state_dict(), os.path.join(path, f"tactician_ep{episode}.pth"))
     print(f"💾 CHECKPOINT GUARDADO: Episodio {episode}")
 
 def train():
-    print("🚀 INICIANDO ENTRENAMIENTO PRO (CON MEMORIA)...")
+    print("🚀 INICIANDO ENTRENAMIENTO MEJORADO (Anti-Overfitting)...")
+    
+    # Detectar y mostrar dispositivo (GPU/CPU)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        print(f"🎮 GPU DETECTADA: {torch.cuda.get_device_name(0)}")
+        print(f"   Memoria GPU disponible: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
+    else:
+        print(f"💻 Usando CPU (para usar GPU, instala PyTorch con soporte CUDA)")
+    
     env = PokemonSimEnv(verbose=False)
     
-    # --- LA LÍNEA MÁGICA ---
-    # Cambiamos 3 por 9. Esto conecta los "ojos" nuevos a la red neuronal.
+    # Inicializar agentes con arquitecturas mejoradas
     explorer = ExplorerAgent(obs_shape=(9, 10, 10), n_actions=4, lr=1e-4)
-    
-    tactician = TacticianAgent(input_dim=10, n_actions=5, lr=1e-3)
+    tactician = TacticianAgent(input_dim=16, n_actions=5, lr=1e-3)  # Actualizado a 16
     strategist = Strategist(env.pokedex)
+
+    best_reward = -float('inf')
+    rewards_history = []
+    
+    # Variables para timing y ETA
+    start_time = time.time()
+    episode_times = []
 
     try: 
         for episode in range(1, EPISODES + 1):
+            episode_start = time.time()
             
-           # Curriculum Acelerado para 1500 Episodios
-            if episode < 300: map_idx = 0          # Pueblo Paleta (Tutorial)
-            elif episode < 600: map_idx = np.random.choice([0, 1])
-            elif episode < 1000: map_idx = np.random.choice([0, 1, 2, 3])
-            else: map_idx = np.random.choice([0, 1, 2, 3, 4]) # Examen Final
+            # Curriculum Learning más suave
+            if episode < 500: map_idx = 0
+            elif episode < 1000: map_idx = np.random.choice([0, 1])
+            elif episode < 1500: map_idx = np.random.choice([0, 1, 2])
+            elif episode < 2000: map_idx = np.random.choice([0, 1, 2, 3])
+            else: map_idx = np.random.choice([0, 1, 2, 3, 4])
+            
             env.current_map_idx = map_idx
             
+            # Renovar equipo periódicamente
             if (episode-1) % 10 == 0:
                 all_ids = list(env.pokedex.keys())
                 party_ids = np.random.choice(all_ids, 6, replace=False) if len(all_ids) >= 6 else all_ids
@@ -87,15 +108,44 @@ def train():
                     state = next_state
                     total_reward += reward
 
-            # Decaimiento más lento para asegurar que aprende bien
-            if explorer.epsilon > 0.05: explorer.epsilon *= 0.9997
-            if tactician.epsilon > 0.05: tactician.epsilon *= 0.9995
+            # Decaimiento epsilon más controlado
+            if explorer.epsilon > explorer.epsilon_min: 
+                explorer.epsilon *= 0.9995
+            if tactician.epsilon > tactician.epsilon_min: 
+                tactician.epsilon *= 0.9993
+            
+            rewards_history.append(total_reward)
+            
+            # Calcular tiempo del episodio
+            episode_time = time.time() - episode_start
+            episode_times.append(episode_time)
+            
+            # Calcular ETA (usando promedio de últimos 50 episodios)
+            if len(episode_times) > 0:
+                avg_episode_time = np.mean(episode_times[-50:])
+                remaining_episodes = EPISODES - episode
+                eta_seconds = avg_episode_time * remaining_episodes
+                eta_str = str(timedelta(seconds=int(eta_seconds)))
+                
+                elapsed_time = time.time() - start_time
+                elapsed_str = str(timedelta(seconds=int(elapsed_time)))
+            else:
+                eta_str = "Calculando..."
+                elapsed_str = "0:00:00"
 
             if episode % 10 == 0:
-                print(f"Ep {episode}/{EPISODES} | Mapa {map_idx} | R: {total_reward:.1f} | Eps: {explorer.epsilon:.2f}")
+                avg_reward = np.mean(rewards_history[-100:]) if len(rewards_history) >= 100 else np.mean(rewards_history)
+                print(f"Ep {episode}/{EPISODES} | Mapa {map_idx} | R: {total_reward:.1f} | Avg100: {avg_reward:.1f} | Eps: {explorer.epsilon:.3f}")
+                print(f"⏱️  Tiempo: {elapsed_str} | ETA: {eta_str} | Ep/s: {1/avg_episode_time:.2f}")
+                
+                # Guardar mejor modelo
+                if avg_reward > best_reward:
+                    best_reward = avg_reward
+                    save_checkpoint(explorer, tactician, episode)
 
             if episode % SAVE_INTERVAL == 0:
                 save_checkpoint(explorer, tactician, episode)
+                print(f"📊 Progreso: {episode/EPISODES*100:.1f}% | Tiempo transcurrido: {elapsed_str} | Tiempo restante estimado: {eta_str}")
 
     except KeyboardInterrupt:
         print("\n🛑 GUARDANDO...")
@@ -103,6 +153,13 @@ def train():
         sys.exit(0)
 
     save_checkpoint(explorer, tactician, EPISODES)
+    
+    total_time = time.time() - start_time
+    total_time_str = str(timedelta(seconds=int(total_time)))
+    print(f"\n✅ ENTRENAMIENTO COMPLETADO!")
+    print(f"   Tiempo total: {total_time_str}")
+    print(f"   Mejor recompensa promedio: {best_reward:.2f}")
+    print(f"   Tiempo promedio por episodio: {np.mean(episode_times):.2f}s")
 
 if __name__ == "__main__":
     train()

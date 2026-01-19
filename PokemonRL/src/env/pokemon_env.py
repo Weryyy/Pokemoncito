@@ -59,6 +59,9 @@ class PokemonSimEnv(gym.Env):
         self.grid = np.array(ALL_MAPS[self.current_map_idx])
         self.player_pos = [0, 0]
         
+        # Reset visit counts for curiosity
+        self.visit_counts = {}
+        
         if self.my_pokemon is None:
             if self.pokedex: self.my_pokemon = self.pokedex.get("4", {}).copy()
             else: self.my_pokemon = {"name": "BugMon", "stats": {"hp":40,"atk":40,"def":40}, "types":["normal"]}
@@ -96,24 +99,34 @@ class PokemonSimEnv(gym.Env):
             tile = self.grid[ny][nx]
             
             if tile == 1: # Choque
-                self.frame_stack.append(self._get_map_state()) # Actualizamos visión (ve el muro)
+                self.frame_stack.append(self._get_map_state())
                 return self._get_stacked_state(), -0.5, False, False, {}
+            
+            # Contamos visitas para curiosity bonus
+            visit_key = (ny, nx)
+            if not hasattr(self, 'visit_counts'):
+                self.visit_counts = {}
+            visits = self.visit_counts.get(visit_key, 0)
+            self.visit_counts[visit_key] = visits + 1
+            
+            # Curiosity bonus: Recompensa por explorar nuevas áreas
+            if visits == 0:
+                step_reward += 0.5  # Primera vez en esta casilla
             
             self.player_pos = [ny, nx]
             
             # --- RECOMPENSAS OPTIMIZADAS ---
             if tile == 9: # META
                 self.log(f"¡Mapa Completado!")
-                # Si soy nivel bajo, llegar a la meta da poco (prefiero farmear)
-                # Si soy nivel alto, llegar a la meta da MUCHO (quiero avanzar)
+                # Recompensa adaptativa según nivel
                 reward = 500 if self.my_pokemon['level'] >= 25 else 50
                 self.frame_stack.append(self._get_map_state())
                 return self._get_stacked_state(), reward, True, False, {}
             
             elif tile == 2: # HIERBA
-                # Pequeño premio por pisar hierba si necesito nivel
+                # Recompensa por pisar hierba si necesito nivel
                 if self.my_pokemon['level'] < 25:
-                    step_reward = 0.1 
+                    step_reward += 0.2
                 
                 if np.random.rand() < 0.2: # Combate
                     self.mode = "COMBAT"
@@ -143,20 +156,27 @@ class PokemonSimEnv(gym.Env):
 
     def _step_combat(self, action):
         if action < 4: return self._get_combat_state(), -0.5, False, False, {}
+        
+        # Usar movimientos del Pokemon activo
         idx = action - 4
-        dmg, _ = BattleEngine.calculate_damage(self.my_pokemon, self.enemy_pokemon, 60, ["normal","fire","water","grass","electric"][idx] if idx<5 else "normal")
+        moves = self.my_pokemon.get('active_moves', ['tackle'])
+        move = moves[idx] if idx < len(moves) else moves[0]
+        
+        dmg, msg = BattleEngine.calculate_damage(self.my_pokemon, self.enemy_pokemon, move)
         self.enemy_hp -= dmg
         
         if self.enemy_hp <= 0:
             self.mode = "MAP"
             exp = BattleEngine.get_exp_reward(self.enemy_pokemon)
             self.my_pokemon['exp'] += exp
-            msg = f"Ganaste +{exp} XP"
+            log_msg = f"Ganaste +{exp} XP"
             if self.my_pokemon['exp'] >= 100:
-                self.my_pokemon['level'] += 1; self.my_pokemon['exp'] = 0
+                self.my_pokemon['level'] += 1
+                self.my_pokemon['exp'] = 0
                 s = BattleEngine.get_stats_at_level(self.my_pokemon, self.my_pokemon['level'])
-                self.max_hp_my = s['hp']; self.my_hp = s['hp']
-                msg += " ¡NIVEL UP!"
+                self.max_hp_my = s['hp']
+                self.my_hp = s['hp']
+                log_msg += " ¡NIVEL UP!"
             
             # --- RECOMPENSA DE COMBATE ---
             # Muy alta si soy nivel bajo (quiero farmear)
@@ -164,22 +184,48 @@ class PokemonSimEnv(gym.Env):
             
             # ¡IMPORTANTE! Al volver al mapa, añadimos el frame actual a la pila
             self.frame_stack.append(self._get_map_state()) 
-            return self._get_stacked_state(), combat_reward, False, False, {"log": msg}
-            
-        enemy_type = self.enemy_pokemon['types'][0]
-        dmg_r, _ = BattleEngine.calculate_damage(self.enemy_pokemon, self.my_pokemon, 40, enemy_type)
+            return self._get_stacked_state(), combat_reward, False, False, {"log": log_msg}
+        
+        # Turno del enemigo
+        enemy_moves = self.enemy_pokemon.get('active_moves', ['tackle'])
+        enemy_move = enemy_moves[0] if enemy_moves else 'tackle'
+        dmg_r, enemy_msg = BattleEngine.calculate_damage(self.enemy_pokemon, self.my_pokemon, enemy_move)
         self.my_hp -= dmg_r
         
-        if self.my_hp <= 0: return self._get_combat_state(), -50, True, False, {"log": "Debilitado..."}
+        if self.my_hp <= 0: 
+            return self._get_combat_state(), -50, True, False, {"log": "Debilitado..."}
+        
         return self._get_combat_state(), dmg*0.05, False, False, {}
 
     def _get_combat_state(self):
-        # El estado de combate sigue siendo 1D (no usa frame stacking por ahora, no hace falta para táctica simple)
-        state = np.zeros(10, dtype=np.float32)
+        # Estado de combate mejorado con más features
+        state = np.zeros(16, dtype=np.float32)  # Aumentado de 10 a 16
+        
+        # HP ratios
         if self.max_hp_my > 0: state[0] = self.my_hp / self.max_hp_my
-        ms = BattleEngine.get_stats_at_level(self.my_pokemon, self.my_pokemon['level'])
-        state[1] = ms['attack']/300.0; state[2] = ms['defense']/300.0
         if self.max_hp_enemy > 0: state[5] = self.enemy_hp / self.max_hp_enemy
+        
+        # Stats normalizados
+        ms = BattleEngine.get_stats_at_level(self.my_pokemon, self.my_pokemon['level'])
+        state[1] = ms['attack']/300.0
+        state[2] = ms['defense']/300.0
+        state[3] = ms.get('special-attack', ms['attack'])/300.0
+        state[4] = ms.get('special-defense', ms['defense'])/300.0
+        
         es = BattleEngine.get_stats_at_level(self.enemy_pokemon, self.enemy_pokemon['level'])
-        state[6] = es['attack']/300.0; state[7] = es['defense']/300.0
+        state[6] = es['attack']/300.0
+        state[7] = es['defense']/300.0
+        state[8] = es.get('special-attack', es['attack'])/300.0
+        state[9] = es.get('special-defense', es['defense'])/300.0
+        
+        # Nuevas features
+        state[10] = 1.0 if self.my_pokemon.get('ability') else 0.0
+        state[11] = 1.0 if self.my_pokemon.get('held_item') else 0.0
+        state[12] = 1.0 if self.my_pokemon.get('status_condition') else 0.0
+        state[13] = 1.0 if self.enemy_pokemon.get('status_condition') else 0.0
+        
+        # Nivel relativo
+        state[14] = self.my_pokemon['level'] / 100.0
+        state[15] = self.enemy_pokemon['level'] / 100.0
+        
         return state

@@ -4,6 +4,8 @@ from collections import deque
 from src.env.battle_engine import BattleEngine
 from src.env.maps import ALL_MAPS
 import sys
+import torch
+
 # Configuración de Niveles
 LEVEL_GATES = {0: 10, 1: 20, 2: 30, 3: 40, 4: 55}
 WILD_ENCOUNTERS = {
@@ -79,12 +81,20 @@ class GameManager:
 
     def heal_team(self):
         self.potions = 10
+        print("\n🏥 --- REVISIÓN DE EQUIPO Y ATAQUES ---")
         for i, p in enumerate(self.my_team):
             # Regenerar manteniendo XP
             new_p = self.strategist.prepare_pokemon(p['id'], p['level'])
             new_p['exp'] = p['exp']
             self.my_team[i] = new_p
+            
+            # --- NUEVO: IMPRIMIR ATAQUES ACTUALES ---
+            moves = new_p.get('active_moves', [])
+            print(f"   🔹 {new_p['name']} (Nv.{new_p['level']}): {moves}")
+            # ----------------------------------------
+            
         self.update_active_pokemon()
+        print("🏥 -----------------------------------\n")
 
     def update_active_pokemon(self):
         # Busca el primero vivo para ponerlo de activo
@@ -221,14 +231,18 @@ class GameManager:
         if self.boss_mode:
             self.boss_idx += 1
             if self.boss_idx >= len(self.gym_team):
-                self.log("🏆 ¡CAMPEÓN!")
+                self.log("🏆 ¡CAMPEÓN DE LA LIGA!")
+                self.log("Has derrotado a todo el equipo.")
+                # Aquí podrías reiniciar el juego o cerrarlo
                 time.sleep(5)
                 sys.exit()
             else:
-                self.env.enemy_pokemon = self.gym_team[self.boss_idx]
-                self.env.max_hp_enemy = self.env.enemy_pokemon['stats']['hp']
+                # Siguiente Pokemon del Boss
+                next_mon = self.gym_team[self.boss_idx]
+                self.env.enemy_pokemon = next_mon
+                self.env.max_hp_enemy = next_mon['stats']['hp']
                 self.env.enemy_hp = self.env.max_hp_enemy
-                self.log(f"Líder saca a {self.env.enemy_pokemon['name']}")
+                self.log(f"⚔ El Líder cambia a {next_mon['name']}!")
         else:
             self.env.mode = "MAP"
 
@@ -257,12 +271,12 @@ class GameManager:
         self.farming_mode = any(p['level'] < req for p in self.my_team)
         
         # 2. Explorer decide (Torch)
-        import torch
+        
         with torch.no_grad():
             st_t = torch.FloatTensor(self.env._get_stacked_state()).unsqueeze(0).to(self.explorer.device)
             q_vals = self.explorer.policy_net(st_t).cpu().numpy()[0].copy()
             
-            # MÁSCARAS LÓGICAS
+            # MÁSCARAS LÓGICAS REDUCIDAS (menos determinismo)
             y, x = self.env.player_pos
             
             for a in range(4):
@@ -275,34 +289,68 @@ class GameManager:
                 
                 coord = (ty, tx)
                 
-                # Paredes / Bloqueos
-                if coord in self.blocked_cells: 
+                # Solo bloquear paredes realmente sólidas (menos agresivo)
+                if coord in self.blocked_cells and self.wall_hits.get(coord, 0) > 5: 
                     q_vals[a] = -99999
                     continue
                 
-                # Zanahoria (Hierba)
+                # Bonificación suave para hierba en modo farmeo (no zanahoria)
                 if 0 <= tx < 10 and 0 <= ty < 10:
                     is_grass = (self.env.grid[ty][tx] == 2)
                     if self.farming_mode and is_grass:
-                        q_vals[a] += 5000
+                        q_vals[a] += 500  # Reducido de 5000
                     if not self.farming_mode and is_grass:
-                        q_vals[a] -= 5000 # Repelente
+                        q_vals[a] -= 300  # Reducido de 5000
                         
-                # Aburrimiento
+                # Penalización SUAVE por visitas (menos sticky floor)
                 vis = self.visit_counts.get(coord, 0)
-                if vis > 0: q_vals[a] -= (vis**2) * 5
+                if vis > 0: 
+                    q_vals[a] -= vis * 0.5  # Reducido dramáticamente de vis**2 * 5
             
             action = np.argmax(q_vals)
             
-            # Anti-Bucle
+            # Anti-Bucle más permisivo
             self.action_history.append(action)
-            if len(self.action_history) >= 10 and len(set(self.action_history)) == 1:
+            if len(self.action_history) >= 15 and len(set(self.action_history)) == 1:
                 action = np.random.randint(0,4)
                 self.action_history.clear()
                 
             # Ejecutar
             self.process_map_action(action)
 
+    def trigger_final_boss(self):
+            """Prepara y lanza la batalla final de gimnasio"""
+            self.boss_mode = True
+            self.env.mode = "COMBAT"
+            self.farming_mode = False # Desactivar farmeo
+            
+            self.log("⚡ -------------------------------- ⚡")
+            self.log("⚠ ¡ALERTA! LÍDER DE GIMNASIO DESAFÍA ⚠")
+            self.log("⚡ -------------------------------- ⚡")
+
+            # 1. Curar al jugador para que sea justo
+            self.heal_team()
+            
+            # 2. Generar el equipo del Boss (Nivel 65 Hardcore)
+            self.gym_team = []
+            for pid in GYM_LEADER_TEAM_IDS: # <----------cambio aqui por si acaso
+                # Usamos el strategist para crear el pokemon
+                boss_mon = self.strategist.prepare_pokemon(pid, level=65)
+                if boss_mon:
+                    # Pequeño buff de stats para hacerlo 'Boss'
+                    boss_mon['stats']['hp'] = int(boss_mon['stats']['hp'] * 1.2)
+                    boss_mon['max_hp'] = boss_mon['stats']['hp'] # Hack visual
+                    self.gym_team.append(boss_mon)
+
+            # 3. Configurar el primer enfrentamiento
+            self.boss_idx = 0
+            first_boss = self.gym_team[0]
+            
+            self.env.enemy_pokemon = first_boss
+            self.env.max_hp_enemy = first_boss['stats']['hp']
+            self.env.enemy_hp = first_boss['stats']['hp']
+            
+            self.log(f"🔥 El Líder envía a {first_boss['name']} (Nv. {first_boss['level']})")
     def process_map_action(self, action):
         # Pre-check de colisión para memoria
         y, x = self.env.player_pos
@@ -311,34 +359,42 @@ class GameManager:
         elif action==1: ty+=1
         elif action==2: tx-=1
         elif action==3: tx+=1
-        
+
+        # logica de muros
         if 0 <= tx < 10 and 0 <= ty < 10 and self.env.grid[ty][tx] == 1:
             self.wall_hits[(ty, tx)] = self.wall_hits.get((ty, tx), 0) + 1
             if self.wall_hits[(ty, tx)] >= 2:
                 self.blocked_cells.add((ty, tx))
         
         self.visit_counts[(y, x)] = self.visit_counts.get((y, x), 0) + 1
-        
+
+        # Ejecutar paso en el entorno
         _, _, done, _, _ = self.env.step(action)
         
-        if done: # Meta
+        # --- AQUÍ ESTÁ EL CAMBIO IMPORTANTE ---
+        if done: # Se pisó la meta (Casilla valor 9)
             if not self.farming_mode:
-                self.log("¡NIVEL SUPERADO!")
-                self.load_level(self.current_level_idx + 1)
+                # Comprobamos si es el último mapa
+                if self.current_level_idx + 1 >= len(ALL_MAPS):
+                    # SI YA NO HAY MAPAS -> JEFE FINAL
+                    self.trigger_final_boss()
+                else:
+                    # SI HAY MAPA -> SIGUIENTE NIVEL
+                    self.log("¡NIVEL SUPERADO!")
+                    self.load_level(self.current_level_idx + 1)
             else:
-                self.log("⛔ ¡Nivel bajo! Volviendo...")
+                self.log("⛔ ¡Nivel bajo! Volviendo al inicio...")
                 self.env.reset()
                 self.env.grid = np.array(ALL_MAPS[self.current_level_idx])
                 self.wall_hits.clear(); self.blocked_cells.clear()
-
-        if self.env.mode == "COMBAT":
-            if not self.farming_mode:
-                self.env.mode = "MAP" # Repelente
-                self.log("Repelente usado.")
-            else:
-                wild = self.generate_wild_pokemon()
-                self.log(f"¡{wild['name']} salvaje!")
-
+        if self.env.mode == "COMBAT" and not self.boss_mode:
+                    if not self.farming_mode:
+                        self.env.mode = "MAP" # Repelente si estamos buscando la salida
+                        self.log("Repelente usado.")
+                    else:
+                        wild = self.generate_wild_pokemon()
+                        self.log(f"¡{wild['name']} salvaje!")
+                        
     def generate_wild_pokemon(self):
         base = 3 + (self.current_level_idx * 10)
         lvl = np.random.randint(base, base+4)
