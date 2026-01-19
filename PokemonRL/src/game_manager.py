@@ -3,6 +3,7 @@ import time
 from collections import deque
 from src.env.battle_engine import BattleEngine
 from src.env.maps import ALL_MAPS
+from src.utils.game_statistics import GameStatistics
 import sys
 import torch
 
@@ -40,6 +41,9 @@ class GameManager:
         self.blocked_cells = set()
         self.visit_counts = {}
         self.action_history = deque(maxlen=15)
+        
+        # Sistema de estadísticas
+        self.stats = GameStatistics()
 
     def log(self, msg):
         self.logs.append(msg)
@@ -78,6 +82,9 @@ class GameManager:
         self.wall_hits.clear(); self.blocked_cells.clear(); self.visit_counts.clear()
         self.farming_mode = True
         self.log(f"--- NIVEL {idx + 1} ---")
+        
+        # Estadísticas
+        self.stats.start_map(idx)
 
     def heal_team(self):
         self.potions = 10
@@ -193,6 +200,9 @@ class GameManager:
         self.env.enemy_hp -= dmg
         self.log(f"Tú: {move} -{dmg} {msg}")
         
+        # Estadísticas
+        self.stats.log_move(move, dmg, msg)
+        
         if self.env.enemy_hp > 0:
             self.enemy_turn()
 
@@ -202,6 +212,9 @@ class GameManager:
         dmg, msg = BattleEngine.calculate_damage(self.env.enemy_pokemon, self.env.my_pokemon, move)
         self.env.my_hp -= dmg
         self.log(f"Rival: {move} -{dmg}")
+        
+        # Estadísticas
+        self.stats.log_damage_received(dmg)
 
     def handle_victory(self):
         # Repartir XP al más débil siempre
@@ -210,9 +223,16 @@ class GameManager:
         
         self.log(f"Ganaste! {receiver['name']} +{xp} XP")
         
+        # Estadísticas
+        self.stats.log_battle_end(won=True, exp_gained=xp)
+        
         if leveled:
             new_lvl = receiver['level']
             self.log(f"🎉 ¡{receiver['name']} SUBE A NIVEL {new_lvl}!")
+            
+            # Estadísticas
+            self.stats.log_level_up(receiver['name'], new_lvl)
+            
             # Actualizar datos del pokemon
             new_p = self.strategist.prepare_pokemon(receiver['id'], new_lvl)
             new_p['exp'] = receiver['exp']
@@ -233,6 +253,12 @@ class GameManager:
             if self.boss_idx >= len(self.gym_team):
                 self.log("🏆 ¡CAMPEÓN DE LA LIGA!")
                 self.log("Has derrotado a todo el equipo.")
+                
+                # Guardar estadísticas finales
+                self.stats.set_pokemon_team(self.my_team)
+                filepath = self.stats.save()
+                self.log(f"Estadísticas guardadas en: {filepath}")
+                
                 # Aquí podrías reiniciar el juego o cerrarlo
                 time.sleep(5)
                 sys.exit()
@@ -243,12 +269,18 @@ class GameManager:
                 self.env.max_hp_enemy = next_mon['stats']['hp']
                 self.env.enemy_hp = self.env.max_hp_enemy
                 self.log(f"⚔ El Líder cambia a {next_mon['name']}!")
+                
+                # Estadísticas
+                self.stats.log_battle_start(next_mon['name'], next_mon['level'], is_boss=True)
         else:
             self.env.mode = "MAP"
 
     def handle_faint(self):
         name = self.env.my_pokemon['name']
         self.log(f"❌ {name} cayó!")
+        
+        # Estadísticas
+        self.stats.log_battle_end(won=False)
         
         # Marcar muerto
         for i, p in enumerate(self.my_team):
@@ -279,6 +311,16 @@ class GameManager:
             # MÁSCARAS LÓGICAS REDUCIDAS (menos determinismo)
             y, x = self.env.player_pos
             
+            # Encontrar la posición de la meta para ayudar a la IA
+            goal_pos = None
+            for gy in range(10):
+                for gx in range(10):
+                    if self.env.grid[gy][gx] == 9:
+                        goal_pos = (gy, gx)
+                        break
+                if goal_pos:
+                    break
+            
             for a in range(4):
                 # Calcular coord destino
                 ty, tx = y, x
@@ -301,6 +343,15 @@ class GameManager:
                         q_vals[a] += 500  # Reducido de 5000
                     if not self.farming_mode and is_grass:
                         q_vals[a] -= 300  # Reducido de 5000
+                    
+                    # NUEVO: Bonus de distancia a la meta cuando NO estamos farmeando
+                    if not self.farming_mode and goal_pos:
+                        current_dist = abs(y - goal_pos[0]) + abs(x - goal_pos[1])
+                        new_dist = abs(ty - goal_pos[0]) + abs(tx - goal_pos[1])
+                        if new_dist < current_dist:
+                            q_vals[a] += 200  # Bonus por acercarse a la meta
+                        elif new_dist > current_dist:
+                            q_vals[a] -= 100  # Penalización por alejarse
                         
                 # Penalización SUAVE por visitas (menos sticky floor)
                 vis = self.visit_counts.get(coord, 0)
@@ -371,6 +422,9 @@ class GameManager:
         # Ejecutar paso en el entorno
         _, _, done, _, _ = self.env.step(action)
         
+        # Estadísticas
+        self.stats.total_steps += 1
+        
         # --- AQUÍ ESTÁ EL CAMBIO IMPORTANTE ---
         if done: # Se pisó la meta (Casilla valor 9)
             if not self.farming_mode:
@@ -381,19 +435,25 @@ class GameManager:
                 else:
                     # SI HAY MAPA -> SIGUIENTE NIVEL
                     self.log("¡NIVEL SUPERADO!")
+                    self.stats.complete_map(self.current_level_idx)
                     self.load_level(self.current_level_idx + 1)
             else:
                 self.log("⛔ ¡Nivel bajo! Volviendo al inicio...")
                 self.env.reset()
                 self.env.grid = np.array(ALL_MAPS[self.current_level_idx])
                 self.wall_hits.clear(); self.blocked_cells.clear()
+        
+        # Manejo de combates aleatorios
         if self.env.mode == "COMBAT" and not self.boss_mode:
-                    if not self.farming_mode:
-                        self.env.mode = "MAP" # Repelente si estamos buscando la salida
-                        self.log("Repelente usado.")
-                    else:
-                        wild = self.generate_wild_pokemon()
-                        self.log(f"¡{wild['name']} salvaje!")
+            if not self.farming_mode:
+                self.env.mode = "MAP" # Repelente si estamos buscando la salida
+                self.log("Repelente usado.")
+            else:
+                wild = self.generate_wild_pokemon()
+                self.log(f"¡{wild['name']} salvaje!")
+                
+                # Estadísticas
+                self.stats.log_battle_start(wild['name'], wild['level'], is_boss=False)
                         
     def generate_wild_pokemon(self):
         base = 3 + (self.current_level_idx * 10)
