@@ -6,6 +6,7 @@ import sys
 import time
 from datetime import timedelta
 import matplotlib.pyplot as plt
+from collections import deque
 
 # Add PokemonRL to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'PokemonRL'))
@@ -17,13 +18,118 @@ from PokemonRL.src.agents.strategist import Strategist
 
 # Page config
 st.set_page_config(
-    page_title="Pokemoncito - RL Training & Visualization",
-    page_icon="🎮",
-    layout="wide"
+    page_title="Pokédex RL Trainer",
+    page_icon="⚡",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# Title
-st.title("🎮 Pokemoncito - Reinforcement Learning Simulator")
+# Pokemon-themed CSS
+st.markdown("""
+<style>
+    /* Pokedex theme */
+    .main {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    
+    .stApp {
+        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+    }
+    
+    /* Sidebar Pokedex style */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #CC0000 0%, #CC0000 60%, #FFFFFF 60%, #FFFFFF 100%);
+        border-right: 4px solid #000;
+    }
+    
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {
+        color: #FFFFFF;
+    }
+    
+    /* Pokedex button in sidebar */
+    .pokedex-circle {
+        width: 60px;
+        height: 60px;
+        background: radial-gradient(circle at 30% 30%, #4FC3F7, #0277BD);
+        border: 3px solid #000;
+        border-radius: 50%;
+        margin: 10px auto;
+        box-shadow: inset 0 0 10px rgba(255,255,255,0.5);
+    }
+    
+    /* Main content cards */
+    .stMetric {
+        background: rgba(255, 255, 255, 0.95);
+        padding: 15px;
+        border-radius: 10px;
+        border: 2px solid #FFD700;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    }
+    
+    /* Combat view */
+    .combat-container {
+        background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+        padding: 20px;
+        border-radius: 15px;
+        border: 3px solid #000;
+        box-shadow: 0 8px 16px rgba(0,0,0,0.4);
+    }
+    
+    /* HP bars */
+    .hp-bar {
+        height: 20px;
+        background: #ccc;
+        border: 2px solid #000;
+        border-radius: 10px;
+        overflow: hidden;
+    }
+    
+    .hp-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #00FF00 0%, #FFFF00 50%, #FF0000 100%);
+        transition: width 0.3s ease;
+    }
+    
+    /* Buttons Pokemon style */
+    .stButton button {
+        background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
+        color: #000;
+        font-weight: bold;
+        border: 2px solid #000;
+        border-radius: 10px;
+        padding: 10px 20px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    }
+    
+    .stButton button:hover {
+        background: linear-gradient(135deg, #FFA500 0%, #FF8C00 100%);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 8px rgba(0,0,0,0.4);
+    }
+    
+    /* Headers */
+    h1, h2, h3 {
+        color: #FFD700;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+    }
+    
+    /* Alert messages */
+    .stAlert {
+        border-radius: 10px;
+        border: 2px solid #000;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Title with Pokemon style
+st.markdown("""
+<div style='text-align: center; padding: 20px;'>
+    <h1 style='font-size: 48px; color: #FFD700; text-shadow: 3px 3px 6px #000;'>
+        ⚡ POKÉDEX RL TRAINER ⚡
+    </h1>
+    <p style='color: #FFF; font-size: 18px;'>Sistema de Entrenamiento con Inteligencia Artificial</p>
+</div>
+""", unsafe_allow_html=True)
 
 # Initialize session state
 if 'env' not in st.session_state:
@@ -44,10 +150,38 @@ if 'total_reward' not in st.session_state:
     st.session_state.total_reward = 0
 if 'done' not in st.session_state:
     st.session_state.done = False
+if 'auto_play' not in st.session_state:
+    st.session_state.auto_play = False
+if 'battle_log' not in st.session_state:
+    st.session_state.battle_log = deque(maxlen=10)
+if 'last_damage' not in st.session_state:
+    st.session_state.last_damage = 0
+if 'last_move' not in st.session_state:
+    st.session_state.last_move = ""
+if 'kpi_metrics' not in st.session_state:
+    st.session_state.kpi_metrics = {
+        'q_values': [],
+        'losses': [],
+        'exploration_rate': [],
+        'win_rate': []
+    }
 
-# Sidebar navigation
-st.sidebar.title("Navegación")
-mode = st.sidebar.radio("Selecciona el modo:", ["Modo Entrenamiento", "Modo Visualización"])
+# Sidebar navigation with Pokedex theme
+st.sidebar.markdown("""
+<div style='text-align: center; padding: 20px 0;'>
+    <div class='pokedex-circle'></div>
+    <h2 style='color: #FFF; text-shadow: 2px 2px 4px #000;'>POKÉDEX</h2>
+    <p style='color: #000; background: #FFF; padding: 5px; border-radius: 5px; margin: 10px;'>
+        Sistema de Navegación
+    </p>
+</div>
+""", unsafe_allow_html=True)
+
+mode = st.sidebar.radio(
+    "Selecciona el modo:",
+    ["Modo Entrenamiento", "Modo Visualización"],
+    label_visibility="collapsed"
+)
 
 def initialize_agents():
     """Initialize or get existing agents"""
@@ -276,11 +410,13 @@ if mode == "Modo Entrenamiento":
 
 # ========== MODO VISUALIZACIÓN ==========
 elif mode == "Modo Visualización":
-    st.header("👁️ Modo Visualización")
-    st.write("Visualiza el comportamiento del agente entrenado")
+    st.markdown("""
+    <h2 style='color: #FFD700; text-align: center;'>👁️ MODO COMBATE - VISUALIZACIÓN</h2>
+    <p style='color: #FFF; text-align: center;'>Observa las batallas en tiempo real estilo Pokémon</p>
+    """, unsafe_allow_html=True)
     
     # Initialize/Load models
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
         if st.button("🔄 Inicializar Entorno"):
             env, explorer, tactician, strategist = initialize_agents()
@@ -297,62 +433,96 @@ elif mode == "Modo Visualización":
                 else:
                     st.warning(f"⚠️ No se encontraron checkpoints para episodio {checkpoint_episode}")
     
-    # Reset environment
-    if st.button("🔄 Reiniciar Entorno"):
-        if st.session_state.env is None:
-            st.error("⚠️ Primero inicializa el entorno")
-        else:
-            env = st.session_state.env
-            strategist = st.session_state.strategist
-            
-            # Setup team
-            all_ids = list(env.pokedex.keys())
-            party_ids = np.random.choice(all_ids, 6, replace=False) if len(all_ids) >= 6 else all_ids
-            strategist.set_party(party_ids)
-            
-            target = np.random.choice(["fire", "water", "grass", "electric", "rock"])
-            best = strategist.build_team(target)
-            
-            env.my_pokemon = best.copy()
-            env.my_pokemon['level'] = 5
-            env.my_pokemon['exp'] = 0
-            
-            state, _ = env.reset()
-            st.session_state.visualization_state = state
-            st.session_state.step_count = 0
-            st.session_state.total_reward = 0
-            st.session_state.done = False
-            
-            st.success("✅ Entorno reiniciado")
-    
-    # Step controls
-    st.subheader("Control de Pasos")
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        single_step = st.button("➡️ 1 Paso")
-    with col2:
-        multiple_steps = st.button("⏩ 10 Pasos")
     with col3:
-        auto_steps = st.button("▶️ 50 Pasos (Auto)")
+        if st.button("🔄 Reiniciar Entorno"):
+            if st.session_state.env is None:
+                st.error("⚠️ Primero inicializa el entorno")
+            else:
+                env = st.session_state.env
+                strategist = st.session_state.strategist
+                
+                # Setup team
+                all_ids = list(env.pokedex.keys())
+                party_ids = np.random.choice(all_ids, 6, replace=False) if len(all_ids) >= 6 else all_ids
+                strategist.set_party(party_ids)
+                
+                target = np.random.choice(["fire", "water", "grass", "electric", "rock"])
+                best = strategist.build_team(target)
+                
+                env.my_pokemon = best.copy()
+                env.my_pokemon['level'] = 5
+                env.my_pokemon['exp'] = 0
+                
+                state, _ = env.reset()
+                st.session_state.visualization_state = state
+                st.session_state.step_count = 0
+                st.session_state.total_reward = 0
+                st.session_state.done = False
+                st.session_state.battle_log.clear()
+                
+                st.success("✅ Entorno reiniciado")
     
-    # Execute steps
+    # Auto-play toggle
+    st.markdown("---")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        if st.button("▶️ MODO AUTO"):
+            st.session_state.auto_play = True
+    with col2:
+        if st.button("⏸️ PAUSAR"):
+            st.session_state.auto_play = False
+    with col3:
+        single_step = st.button("➡️ 1 Paso")
+    with col4:
+        multiple_steps = st.button("⏩ 10 Pasos")
+    
+    # Auto-play execution
+    if st.session_state.auto_play and st.session_state.env is not None and st.session_state.visualization_state is not None and not st.session_state.done:
+        time.sleep(0.1)  # Small delay for visualization
+        env = st.session_state.env
+        explorer = st.session_state.explorer
+        tactician = st.session_state.tactician
+        state = st.session_state.visualization_state
+        
+        # Execute one step
+        if env.mode == "MAP":
+            action = explorer.select_action(state)
+            next_state, reward, done, _, info = env.step(action)
+            state = next_state
+            st.session_state.total_reward += reward
+            
+        elif env.mode == "COMBAT":
+            action = tactician.select_action(state)
+            next_state, reward, done, _, info = env.step(action + 4)
+            
+            # Log battle information
+            if hasattr(env, 'my_pokemon') and hasattr(env, 'enemy_pokemon'):
+                move_name = env.my_pokemon.get('active_moves', ['???'])[min(action, 3)]
+                st.session_state.last_move = move_name
+                if 'damage' in str(info):
+                    st.session_state.last_damage = reward
+            
+            state = next_state
+            st.session_state.total_reward += reward
+        
+        st.session_state.step_count += 1
+        st.session_state.done = done
+        st.session_state.visualization_state = state
+        st.rerun()
+    
+    # Manual step execution
     if st.session_state.env is not None and st.session_state.visualization_state is not None:
         steps_to_take = 0
         if single_step:
             steps_to_take = 1
         elif multiple_steps:
             steps_to_take = 10
-        elif auto_steps:
-            steps_to_take = 50
         
         if steps_to_take > 0 and not st.session_state.done:
             env = st.session_state.env
             explorer = st.session_state.explorer
             tactician = st.session_state.tactician
             state = st.session_state.visualization_state
-            
-            progress_placeholder = st.empty()
             
             for i in range(steps_to_take):
                 if st.session_state.done:
@@ -372,13 +542,8 @@ elif mode == "Modo Visualización":
                 
                 st.session_state.step_count += 1
                 st.session_state.done = done
-                
-                if steps_to_take > 1:
-                    progress_placeholder.text(f"Ejecutando paso {i+1}/{steps_to_take}")
             
             st.session_state.visualization_state = state
-            if steps_to_take > 1:
-                progress_placeholder.empty()
     
     # Display current state
     st.subheader("Estado Actual")
@@ -386,93 +551,190 @@ elif mode == "Modo Visualización":
     if st.session_state.env is not None:
         env = st.session_state.env
         
-        # Metrics
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Modo", env.mode)
-        col2.metric("Pasos", st.session_state.step_count)
-        col3.metric("Reward Total", f"{st.session_state.total_reward:.2f}")
-        col4.metric("Estado", "Terminado" if st.session_state.done else "En Progreso")
+        # Status indicators
+        st.markdown("---")
+        col1, col2, col3, col4, col5 = st.columns(5)
         
-        # Map visualization
-        st.subheader("🗺️ Mapa")
-        if hasattr(env, 'grid') and hasattr(env, 'player_pos'):
-            # Create a visual representation of the map
-            fig, ax = plt.subplots(figsize=(8, 8))
-            
-            # Colors for different tiles
-            colors = {
-                0: [0.8, 0.8, 0.7],   # Path (beige)
-                1: [0.4, 0.4, 0.4],   # Wall (gray)
-                2: [0.2, 0.6, 0.2],   # Grass (green)
-                9: [1.0, 0.84, 0.0]   # Goal (gold)
-            }
-            
-            # Create RGB image
-            grid_visual = np.zeros((10, 10, 3))
-            for i in range(10):
-                for j in range(10):
-                    tile_value = env.grid[i][j]
-                    grid_visual[i, j] = colors.get(tile_value, [0, 0, 0])
-            
-            # Mark player position
-            py, px = env.player_pos
-            grid_visual[py, px] = [0, 1, 1]  # Cyan for player
-            
-            ax.imshow(grid_visual)
-            ax.set_title(f"Mapa {env.current_map_idx} - Posición del Jugador: ({py}, {px})")
-            ax.set_xticks(range(10))
-            ax.set_yticks(range(10))
-            ax.grid(True, alpha=0.3)
-            
-            st.pyplot(fig)
-            plt.close()
+        status_color = "🟢" if not st.session_state.done else "🔴"
+        auto_status = "▶️ AUTO" if st.session_state.auto_play else "⏸️ PAUSADO"
         
-        # Combat information
-        if env.mode == "COMBAT":
-            st.subheader("⚔️ Información de Combate")
+        col1.markdown(f"**Estado:** {status_color}")
+        col2.markdown(f"**Modo:** {'⚔️ COMBATE' if env.mode == 'COMBAT' else '🗺️ EXPLORACIÓN'}")
+        col3.markdown(f"**Auto:** {auto_status}")
+        col4.markdown(f"**Pasos:** {st.session_state.step_count}")
+        col5.markdown(f"**Reward:** {st.session_state.total_reward:.1f}")
+        
+        # Combat visualization (Pokemon style)
+        if env.mode == "COMBAT" and hasattr(env, 'my_pokemon') and hasattr(env, 'enemy_pokemon'):
+            st.markdown("---")
+            st.markdown("""
+            <div style='text-align: center; padding: 10px; background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); 
+                        border-radius: 15px; border: 3px solid #000; margin: 20px 0;'>
+                <h3 style='color: #000;'>⚔️ ¡BATALLA POKÉMON! ⚔️</h3>
+            </div>
+            """, unsafe_allow_html=True)
             
-            col1, col2 = st.columns(2)
+            # Battle display - Two columns for each Pokemon
+            col_enemy, col_player = st.columns(2)
             
-            with col1:
-                st.write("**Tu Pokémon:**")
-                if hasattr(env, 'my_pokemon') and env.my_pokemon:
-                    st.write(f"Nombre: {env.my_pokemon.get('name', 'Unknown')}")
-                    st.write(f"Nivel: {env.my_pokemon.get('level', 1)}")
-                    st.write(f"Tipos: {', '.join(env.my_pokemon.get('types', []))}")
-                    if hasattr(env, 'my_hp') and hasattr(env, 'max_hp_my'):
-                        hp_percent = (env.my_hp / env.max_hp_my) * 100
-                        st.progress(hp_percent / 100)
-                        st.write(f"HP: {int(env.my_hp)}/{int(env.max_hp_my)}")
-                    if env.my_pokemon.get('ability'):
-                        st.write(f"Habilidad: {env.my_pokemon['ability']}")
-                    if env.my_pokemon.get('held_item'):
-                        st.write(f"Objeto: {env.my_pokemon['held_item']}")
+            with col_enemy:
+                st.markdown(f"""
+                <div style='background: rgba(255,100,100,0.3); padding: 15px; border-radius: 10px; border: 2px solid #8B0000;'>
+                    <h3 style='color: #8B0000; text-align: center;'>🔥 RIVAL</h3>
+                    <h2 style='text-align: center;'>{env.enemy_pokemon.get('name', 'Unknown').upper()}</h2>
+                    <p style='text-align: center; font-size: 18px;'>Nv. {env.enemy_pokemon.get('level', 1)}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Enemy HP bar
+                if hasattr(env, 'enemy_hp') and hasattr(env, 'max_hp_enemy'):
+                    hp_percent = max(0, min(100, (env.enemy_hp / env.max_hp_enemy) * 100))
+                    hp_color = "#00FF00" if hp_percent > 50 else ("#FFFF00" if hp_percent > 20 else "#FF0000")
+                    
+                    st.markdown(f"""
+                    <div style='margin: 10px 0;'>
+                        <div style='background: #333; border: 2px solid #000; border-radius: 10px; padding: 3px;'>
+                            <div style='background: {hp_color}; width: {hp_percent}%; height: 25px; border-radius: 7px; 
+                                        transition: width 0.3s ease;'></div>
+                        </div>
+                        <p style='text-align: center; font-weight: bold; margin-top: 5px;'>
+                            HP: {int(env.enemy_hp)}/{int(env.max_hp_enemy)}
+                        </p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                # Enemy info
+                types = env.enemy_pokemon.get('types', [])
+                type_badges = ' '.join([f"<span style='background: #666; color: #FFF; padding: 3px 8px; border-radius: 5px; margin: 2px;'>{t.upper()}</span>" for t in types])
+                st.markdown(f"<p style='text-align: center;'>{type_badges}</p>", unsafe_allow_html=True)
+                
+                if env.enemy_pokemon.get('ability'):
+                    st.markdown(f"<p style='text-align: center; font-size: 12px;'>⚡ {env.enemy_pokemon['ability']}</p>", unsafe_allow_html=True)
             
-            with col2:
-                st.write("**Pokémon Enemigo:**")
-                if hasattr(env, 'enemy_pokemon') and env.enemy_pokemon:
-                    st.write(f"Nombre: {env.enemy_pokemon.get('name', 'Unknown')}")
-                    st.write(f"Nivel: {env.enemy_pokemon.get('level', 1)}")
-                    st.write(f"Tipos: {', '.join(env.enemy_pokemon.get('types', []))}")
-                    if hasattr(env, 'enemy_hp') and hasattr(env, 'max_hp_enemy'):
-                        hp_percent = (env.enemy_hp / env.max_hp_enemy) * 100
-                        st.progress(hp_percent / 100)
-                        st.write(f"HP: {int(env.enemy_hp)}/{int(env.max_hp_enemy)}")
-                    if env.enemy_pokemon.get('ability'):
-                        st.write(f"Habilidad: {env.enemy_pokemon['ability']}")
-                    if env.enemy_pokemon.get('held_item'):
-                        st.write(f"Objeto: {env.enemy_pokemon['held_item']}")
+            with col_player:
+                st.markdown(f"""
+                <div style='background: rgba(100,100,255,0.3); padding: 15px; border-radius: 10px; border: 2px solid #00008B;'>
+                    <h3 style='color: #00008B; text-align: center;'>💙 TU POKÉMON</h3>
+                    <h2 style='text-align: center;'>{env.my_pokemon.get('name', 'Unknown').upper()}</h2>
+                    <p style='text-align: center; font-size: 18px;'>Nv. {env.my_pokemon.get('level', 1)}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Player HP bar
+                if hasattr(env, 'my_hp') and hasattr(env, 'max_hp_my'):
+                    hp_percent = max(0, min(100, (env.my_hp / env.max_hp_my) * 100))
+                    hp_color = "#00FF00" if hp_percent > 50 else ("#FFFF00" if hp_percent > 20 else "#FF0000")
+                    
+                    st.markdown(f"""
+                    <div style='margin: 10px 0;'>
+                        <div style='background: #333; border: 2px solid #000; border-radius: 10px; padding: 3px;'>
+                            <div style='background: {hp_color}; width: {hp_percent}%; height: 25px; border-radius: 7px; 
+                                        transition: width 0.3s ease;'></div>
+                        </div>
+                        <p style='text-align: center; font-weight: bold; margin-top: 5px;'>
+                            HP: {int(env.my_hp)}/{int(env.max_hp_my)}
+                        </p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                # Player info
+                types = env.my_pokemon.get('types', [])
+                type_badges = ' '.join([f"<span style='background: #4169E1; color: #FFF; padding: 3px 8px; border-radius: 5px; margin: 2px;'>{t.upper()}</span>" for t in types])
+                st.markdown(f"<p style='text-align: center;'>{type_badges}</p>", unsafe_allow_html=True)
+                
+                if env.my_pokemon.get('ability'):
+                    st.markdown(f"<p style='text-align: center; font-size: 12px;'>⚡ {env.my_pokemon['ability']}</p>", unsafe_allow_html=True)
+            
+            # Moves display
+            st.markdown("### 🎯 Movimientos Disponibles")
+            moves = env.my_pokemon.get('active_moves', [])
+            cols = st.columns(4)
+            for i, move in enumerate(moves[:4]):
+                with cols[i]:
+                    st.markdown(f"""
+                    <div style='background: #FFD700; padding: 10px; border-radius: 8px; border: 2px solid #000; 
+                                text-align: center; min-height: 60px;'>
+                        <p style='font-weight: bold; color: #000; margin: 0;'>{move.upper()}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            # Battle log
+            st.markdown("### 📜 Registro de Batalla")
+            log_container = st.container()
+            with log_container:
+                if st.session_state.last_move:
+                    st.info(f"💥 {env.my_pokemon.get('name', 'Pokémon')} usó **{st.session_state.last_move}**!")
+                
+                st.markdown("""
+                <div style='background: rgba(0,0,0,0.7); color: #FFF; padding: 15px; border-radius: 10px; 
+                            border: 2px solid #FFD700; max-height: 200px; overflow-y: auto;'>
+                    <p>⚔️ La batalla continúa...</p>
+                    <p>🎲 Las IAs están tomando decisiones estratégicas</p>
+                    <p>📊 Analizando efectividad de tipos...</p>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        # Map visualization (only when not in combat)
+        elif env.mode == "MAP":
+            st.markdown("---")
+            st.markdown("### 🗺️ EXPLORACIÓN DEL MAPA")
+            
+            if hasattr(env, 'grid') and hasattr(env, 'player_pos'):
+                # Create a visual representation of the map
+                fig, ax = plt.subplots(figsize=(10, 10))
+                fig.patch.set_facecolor('#2a5298')
+                
+                # Colors for different tiles
+                colors = {
+                    0: [0.9, 0.9, 0.85],   # Path (light beige)
+                    1: [0.3, 0.3, 0.3],    # Wall (dark gray)
+                    2: [0.2, 0.7, 0.2],    # Grass (green)
+                    9: [1.0, 0.84, 0.0]    # Goal (gold)
+                }
+                
+                # Create RGB image
+                grid_visual = np.zeros((10, 10, 3))
+                for i in range(10):
+                    for j in range(10):
+                        tile_value = env.grid[i][j]
+                        grid_visual[i, j] = colors.get(tile_value, [0, 0, 0])
+                
+                # Mark player position
+                py, px = env.player_pos
+                grid_visual[py, px] = [0, 0.8, 1]  # Cyan for player
+                
+                ax.imshow(grid_visual, interpolation='nearest')
+                ax.set_title(f"Mapa {env.current_map_idx + 1} - Jugador en ({py}, {px})", 
+                           fontsize=16, color='white', fontweight='bold')
+                ax.set_xticks(range(10))
+                ax.set_yticks(range(10))
+                ax.grid(True, alpha=0.3, color='white', linewidth=2)
+                ax.set_facecolor('#1e3c72')
+                
+                st.pyplot(fig)
+                plt.close()
+                
+                # Map legend
+                col1, col2, col3, col4 = st.columns(4)
+                col1.markdown("🟦 **Jugador**")
+                col2.markdown("🟩 **Hierba** (encuentros)")
+                col3.markdown("⬜ **Camino**")
+                col4.markdown("🟨 **Meta**")
+        
         else:
-            st.info("No hay batalla activa en este momento")
+            st.info("🎮 Esperando inicialización del entorno...")
 
-# Footer
+# Footer with Pokemon theme
 st.sidebar.markdown("---")
-st.sidebar.info("""
-**Pokemoncito v2.0**
-
-Un simulador de Pokémon con Deep Reinforcement Learning.
-
-- ExplorerAgent: CNN para exploración
-- TacticianAgent: DQN para combate
-- Strategist: Sistema experto
-""")
+st.sidebar.markdown("""
+<div style='background: #FFF; padding: 15px; border-radius: 10px; border: 2px solid #000; color: #000;'>
+    <h4 style='color: #CC0000; text-align: center;'>POKÉDEX v2.0</h4>
+    <p style='font-size: 12px; margin: 5px 0;'><b>ExplorerAgent:</b> CNN para exploración</p>
+    <p style='font-size: 12px; margin: 5px 0;'><b>TacticianAgent:</b> DQN para combate</p>
+    <p style='font-size: 12px; margin: 5px 0;'><b>Strategist:</b> Sistema experto</p>
+    <p style='text-align: center; margin-top: 10px; font-size: 11px;'>
+        🎮 Entrenamiento con Deep RL<br>
+        ⚡ Powered by PyTorch
+    </p>
+</div>
+""", unsafe_allow_html=True)
