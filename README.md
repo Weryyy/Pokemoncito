@@ -296,5 +296,4 @@ Para preguntas, sugerencias o reportar problemas, abre un issue en GitHub.
 ---
 
 **Versión**: 2.0  
-**Última actualización**: Enero 2026  
-**Mantenido por**: GitHub Copilot
+**Última actualización**: Enero 2026
