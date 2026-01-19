@@ -478,7 +478,6 @@ elif mode == "Modo Visualización":
     
     # Auto-play execution
     if st.session_state.auto_play and st.session_state.env is not None and st.session_state.visualization_state is not None and not st.session_state.done:
-        time.sleep(0.1)  # Small delay for visualization
         env = st.session_state.env
         explorer = st.session_state.explorer
         tactician = st.session_state.tactician
@@ -508,7 +507,10 @@ elif mode == "Modo Visualización":
         st.session_state.step_count += 1
         st.session_state.done = done
         st.session_state.visualization_state = state
-        st.rerun()
+        
+        # Auto-rerun with a small delay using st.empty() placeholder technique
+        if not st.session_state.done:
+            st.rerun()
     
     # Manual step execution
     if st.session_state.env is not None and st.session_state.visualization_state is not None:
