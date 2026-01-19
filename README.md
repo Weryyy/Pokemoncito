@@ -8,6 +8,8 @@ Un simulador de Pokémon con **Reinforcement Learning** (Deep Q-Networks) que en
 - [Requisitos del Sistema](#-requisitos-del-sistema)
 - [Instalación](#-instalación)
 - [Uso](#-uso)
+  - [🌐 Interfaz Web con Streamlit (NUEVO)](#-interfaz-web-con-streamlit-nuevo)
+  - [🐳 Uso con Docker (NUEVO)](#-uso-con-docker-nuevo)
   - [Entrenar las IAs](#1-entrenar-las-ias)
   - [Visualizar el Juego](#2-visualizar-el-juego)
   - [Otros Modos de Juego](#3-otros-modos-de-juego)
@@ -89,6 +91,55 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 
 ## 🎮 Uso
 
+### 🌐 Interfaz Web con Streamlit (NUEVO)
+
+La forma más fácil y moderna de usar Pokemoncito es a través de la **interfaz web con Streamlit**. Esta interfaz proporciona:
+
+- **Modo Entrenamiento**: Entrena los agentes con parámetros configurables (TOTAL_EPISODES, BATCH_SIZE, MAX_STEPS)
+- **Modo Visualización**: Observa el comportamiento del agente paso a paso con visualización del mapa y estado de combate
+- **Persistencia**: Los modelos y el estado del entorno se mantienen entre interacciones usando `st.session_state`
+- **Métricas en vivo**: Gráficos de recompensas y epsilon durante el entrenamiento
+
+#### Ejecutar la Interfaz Web
+
+```bash
+# Desde el directorio raíz del proyecto
+streamlit run streamlit_app.py
+```
+
+La aplicación se abrirá automáticamente en tu navegador en `http://localhost:8501`
+
+**Capturas de pantalla:**
+
+**Modo Entrenamiento:**
+![Modo Entrenamiento](https://github.com/user-attachments/assets/b34bd8cc-19c8-4d9f-a22d-5b9a11f11d2c)
+
+**Modo Visualización:**
+![Modo Visualización](https://github.com/user-attachments/assets/98fcbe79-e6f1-4a01-bc8e-dae8e661428d)
+
+**Visualización con Mapa:**
+![Visualización con Mapa](https://github.com/user-attachments/assets/ad1a27d1-fc3d-4024-831e-b67668a1582e)
+
+### 🐳 Uso con Docker (NUEVO)
+
+Para ejecutar Pokemoncito en un entorno consistente y aislado sin preocuparte por dependencias:
+
+```bash
+# Construir y ejecutar con Docker Compose
+docker-compose up --build
+
+# Acceder en tu navegador
+# http://localhost:8501
+```
+
+**Ventajas de usar Docker:**
+- ✅ Mismo entorno en cualquier ordenador (Windows, macOS, Linux)
+- ✅ No necesitas instalar Python ni dependencias manualmente
+- ✅ Los checkpoints se guardan en volúmenes persistentes
+- ✅ Fácil de compartir y desplegar
+
+Para más detalles sobre Docker, consulta [DOCKER_USAGE.md](DOCKER_USAGE.md).
+
 ### 1. Entrenar las IAs
 
 Para entrenar los cerebros de las IAs desde cero (toma ~2-4 horas en CPU, ~15-30 minutos en GPU):
@@ -110,7 +161,11 @@ Ep 200/3000 | Mapa 1 | R: -25.3 | Avg100: -28.1 | Eps: 0.952
 
 ### 2. Visualizar el Juego
 
-Una vez entrenado (o usando los checkpoints incluidos), ejecuta la visualización interactiva:
+#### Opción A: Interfaz Web (Recomendado)
+Usa la interfaz web de Streamlit como se describe arriba. Es más fácil de usar y tiene controles interactivos.
+
+#### Opción B: Visualización con Pygame
+Una vez entrenado (o usando los checkpoints incluidos), ejecuta la visualización interactiva tradicional:
 
 ```bash
 cd PokemonRL
@@ -245,6 +300,7 @@ pip install -r PokemonRL/requirements.txt
 
 ## 📚 Documentación Adicional
 
+- **[DOCKER_USAGE.md](DOCKER_USAGE.md)**: Guía completa para usar Docker con Pokemoncito
 - **[MEJORAS_REALIZADAS.md](MEJORAS_REALIZADAS.md)**: Detalles técnicos completos de todas las mejoras implementadas
 - **[GPU_SETUP.md](GPU_SETUP.md)**: Guía detallada para configuración y uso de GPU
 

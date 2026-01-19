@@ -4,4 +4,4 @@ numpy
 requests
 matplotlib
 pygame
-requests
+streamlit>=1.20.0,<2.0.0

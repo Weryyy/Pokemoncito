@@ -41,3 +41,9 @@ Thumbs.db
 
 # Project specific
 *.log
+
+# Streamlit
+.streamlit/
+
+# Docker
+docker-compose.override.yml
