@@ -127,25 +127,9 @@ Esto abrirá una ventana de Pygame mostrando:
 - La IA juega automáticamente
 - Cierra la ventana para terminar
 
-### 3. Otros Modos de Juego
+### 3. Archivos de Prueba
 
-#### Modo Batalla de Gimnasio (Boss Battle)
-Enfrenta a tu equipo contra un líder de gimnasio con Pokémon legendarios:
-
-```bash
-cd PokemonRL
-python run_boss_battle.py
-```
-
-#### Modo Visualización con Matplotlib
-Visualización más simple usando gráficos de matplotlib:
-
-```bash
-cd PokemonRL
-python play.py
-```
-
-**Nota**: Edita el `episode_num` en `play.py` (línea 28) para cargar diferentes checkpoints.
+**Nota**: Los archivos `play.py`, `Juego.py` y `run_boss_battle.py` son scripts experimentales de prueba y no están en mantenimiento activo. Se recomienda usar únicamente `train.py` y `visual_play.py` para la funcionalidad principal del proyecto.
 
 ## 📁 Estructura del Proyecto
 
@@ -170,10 +154,11 @@ Pokemoncito/
 │   │   ├── moves.json      # Base de datos de movimientos
 │   │   └── sprites/        # Sprites de Pokémon
 │   ├── checkpoints/        # Modelos entrenados
-│   ├── train.py           # Script de entrenamiento
-│   ├── visual_play.py     # Visualización principal (Pygame)
-│   ├── play.py            # Visualización alternativa (Matplotlib)
-│   └── run_boss_battle.py # Modo batalla de gimnasio
+│   ├── train.py           # ⭐ Script principal de entrenamiento
+│   ├── visual_play.py     # ⭐ Visualización principal (Pygame)
+│   ├── play.py            # [Experimental] Script de prueba
+│   ├── run_boss_battle.py # [Experimental] Script de prueba
+│   └── Juego.py           # [Experimental] Script de prueba
 ├── README.md              # Este archivo
 ├── GPU_SETUP.md           # Guía de configuración GPU
 └── MEJORAS_REALIZADAS.md  # Registro de mejoras técnicas
