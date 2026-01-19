@@ -7,6 +7,11 @@ import time
 from datetime import timedelta
 import matplotlib.pyplot as plt
 from collections import deque
+import folium
+from streamlit_folium import st_folium
+import altair as alt
+import pandas as pd
+import random
 
 # Add PokemonRL to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'PokemonRL'))
@@ -141,7 +146,7 @@ if 'tactician' not in st.session_state:
 if 'strategist' not in st.session_state:
     st.session_state.strategist = None
 if 'training_history' not in st.session_state:
-    st.session_state.training_history = {'episodes': [], 'rewards': [], 'epsilons': []}
+    st.session_state.training_history = {'episodes': [], 'rewards': [], 'epsilons': [], 'gps_coords': [], 'wins': []}
 if 'visualization_state' not in st.session_state:
     st.session_state.visualization_state = None
 if 'step_count' not in st.session_state:
@@ -165,6 +170,12 @@ if 'kpi_metrics' not in st.session_state:
         'exploration_rate': [],
         'win_rate': []
     }
+if 'selected_marker' not in st.session_state:
+    st.session_state.selected_marker = None
+if 'last_q_values' not in st.session_state:
+    st.session_state.last_q_values = None
+if 'map_mode' not in st.session_state:
+    st.session_state.map_mode = 'MAP'  # 'MAP' or 'COMBAT'
 
 # Sidebar navigation with Pokedex theme
 st.sidebar.markdown("""
@@ -179,7 +190,7 @@ st.sidebar.markdown("""
 
 mode = st.sidebar.radio(
     "Selecciona el modo:",
-    ["Modo Entrenamiento", "Modo Visualización"],
+    ["Modo Entrenamiento", "Modo Visualización", "Modo Exploración", "Dashboard Estadísticas"],
     label_visibility="collapsed"
 )
 
@@ -225,6 +236,120 @@ def save_checkpoints(explorer, tactician, episode):
         st.error(f"Error guardando checkpoints: {e}")
         return False
 
+def generate_pokemon_geojson(center_lat=40.4168, center_lon=-3.7038, num_gyms=5, num_wild=10):
+    """Generate random GeoJSON data for Pokemon Gyms and Wild Pokemon"""
+    gyms = []
+    wild_pokemon = []
+    
+    # Pokemon types for different location types
+    location_types = [
+        {"type": "park", "pokemon_type": "grass", "icon": "🌳"},
+        {"type": "water", "pokemon_type": "water", "icon": "💧"},
+        {"type": "city", "pokemon_type": "electric", "icon": "⚡"},
+        {"type": "mountain", "pokemon_type": "rock", "icon": "⛰️"},
+        {"type": "desert", "pokemon_type": "fire", "icon": "🔥"}
+    ]
+    
+    # Generate gyms
+    for i in range(num_gyms):
+        # Random offset (approximately 0.01 degrees = ~1km)
+        lat_offset = (random.random() - 0.5) * 0.02
+        lon_offset = (random.random() - 0.5) * 0.02
+        
+        location = random.choice(location_types)
+        gym = {
+            "type": "Feature",
+            "properties": {
+                "id": f"gym_{i}",
+                "name": f"Gimnasio Pokémon {i+1}",
+                "location_type": location["type"],
+                "pokemon_type": location["pokemon_type"],
+                "icon": location["icon"],
+                "category": "gym"
+            },
+            "geometry": {
+                "type": "Point",
+                "coordinates": [center_lon + lon_offset, center_lat + lat_offset]
+            }
+        }
+        gyms.append(gym)
+    
+    # Generate wild pokemon
+    wild_types = ["fire", "water", "grass", "electric", "rock", "normal"]
+    for i in range(num_wild):
+        lat_offset = (random.random() - 0.5) * 0.03
+        lon_offset = (random.random() - 0.5) * 0.03
+        
+        pokemon_type = random.choice(wild_types)
+        wild = {
+            "type": "Feature",
+            "properties": {
+                "id": f"wild_{i}",
+                "name": f"Pokémon Salvaje #{i+1}",
+                "pokemon_type": pokemon_type,
+                "category": "wild"
+            },
+            "geometry": {
+                "type": "Point",
+                "coordinates": [center_lon + lon_offset, center_lat + lat_offset]
+            }
+        }
+        wild_pokemon.append(wild)
+    
+    return {
+        "gyms": {"type": "FeatureCollection", "features": gyms},
+        "wild": {"type": "FeatureCollection", "features": wild_pokemon}
+    }
+
+def create_folium_map(center_lat=40.4168, center_lon=-3.7038):
+    """Create an interactive Folium map with Pokemon markers"""
+    # Create base map
+    m = folium.Map(
+        location=[center_lat, center_lon],
+        zoom_start=13,
+        tiles='OpenStreetMap'
+    )
+    
+    # Generate Pokemon data
+    geojson_data = generate_pokemon_geojson(center_lat, center_lon)
+    
+    # Add gyms to map
+    for gym in geojson_data["gyms"]["features"]:
+        coords = gym["geometry"]["coordinates"]
+        props = gym["properties"]
+        
+        folium.Marker(
+            location=[coords[1], coords[0]],
+            popup=folium.Popup(
+                f"<b>{props['icon']} {props['name']}</b><br>"
+                f"Tipo: {props['location_type']}<br>"
+                f"Pokémon: {props['pokemon_type'].upper()}<br>"
+                f"<i>Click para batallar</i>",
+                max_width=200
+            ),
+            tooltip=props['name'],
+            icon=folium.Icon(color='red', icon='home', prefix='fa')
+        ).add_to(m)
+    
+    # Add wild pokemon to map
+    for wild in geojson_data["wild"]["features"]:
+        coords = wild["geometry"]["coordinates"]
+        props = wild["properties"]
+        
+        folium.Marker(
+            location=[coords[1], coords[0]],
+            popup=folium.Popup(
+                f"<b>⚡ {props['name']}</b><br>"
+                f"Tipo: {props['pokemon_type'].upper()}<br>"
+                f"<i>Click para capturar</i>",
+                max_width=200
+            ),
+            tooltip=props['name'],
+            icon=folium.Icon(color='green', icon='leaf', prefix='fa')
+        ).add_to(m)
+    
+    return m, geojson_data
+
 # ========== MODO ENTRENAMIENTO ==========
 if mode == "Modo Entrenamiento":
     st.header("🎓 Modo Entrenamiento")
@@ -259,7 +384,7 @@ if mode == "Modo Entrenamiento":
             strategist = st.session_state.strategist
             
             # Clear previous history
-            st.session_state.training_history = {'episodes': [], 'rewards': [], 'epsilons': []}
+            st.session_state.training_history = {'episodes': [], 'rewards': [], 'epsilons': [], 'gps_coords': [], 'wins': []}
             
             # Progress containers
             progress_bar = st.progress(0)
@@ -338,9 +463,16 @@ if mode == "Modo Entrenamiento":
                         tactician.epsilon *= 0.9993
                     
                     # Store history
+                    # Generate random GPS coordinates near Madrid for this episode
+                    gps_lat = 40.4168 + (np.random.random() - 0.5) * 0.1
+                    gps_lon = -3.7038 + (np.random.random() - 0.5) * 0.1
+                    is_win = total_reward > 0  # Simple heuristic for win detection
+                    
                     st.session_state.training_history['episodes'].append(episode)
                     st.session_state.training_history['rewards'].append(total_reward)
                     st.session_state.training_history['epsilons'].append(explorer.epsilon)
+                    st.session_state.training_history['gps_coords'].append((gps_lat, gps_lon))
+                    st.session_state.training_history['wins'].append(is_win)
                     
                     # Update UI every 10 episodes
                     if episode % 10 == 0:
@@ -491,7 +623,8 @@ elif mode == "Modo Visualización":
             st.session_state.total_reward += reward
             
         elif env.mode == "COMBAT":
-            action = tactician.select_action(state)
+            action, q_values = tactician.select_action(state, return_q_values=True)
+            st.session_state.last_q_values = q_values  # Store for XAI visualization
             next_state, reward, done, _, info = env.step(action + 4)
             
             # Log battle information
@@ -537,7 +670,8 @@ elif mode == "Modo Visualización":
                     st.session_state.total_reward += reward
                     
                 elif env.mode == "COMBAT":
-                    action = tactician.select_action(state)
+                    action, q_values = tactician.select_action(state, return_q_values=True)
+                    st.session_state.last_q_values = q_values  # Store for XAI visualization
                     next_state, reward, done, _, _ = env.step(action + 4)
                     state = next_state
                     st.session_state.total_reward += reward
@@ -660,12 +794,69 @@ elif mode == "Modo Visualización":
                     </div>
                     """, unsafe_allow_html=True)
             
-            # Battle log
+            # Battle log and XAI
             st.markdown("### 📜 Registro de Batalla")
             log_container = st.container()
             with log_container:
                 if st.session_state.last_move:
                     st.info(f"💥 {env.my_pokemon.get('name', 'Pokémon')} usó **{st.session_state.last_move}**!")
+                
+                # XAI: Q-Values Visualization
+                if st.session_state.last_q_values is not None:
+                    st.markdown("#### 🧠 IA Explicable (XAI) - Análisis de Decisión")
+                    
+                    moves = env.my_pokemon.get('active_moves', ['Movimiento 1', 'Movimiento 2', 'Movimiento 3', 'Movimiento 4'])
+                    q_vals = st.session_state.last_q_values
+                    
+                    # Create DataFrame for visualization
+                    q_data = []
+                    for i in range(min(4, len(moves))):
+                        move_name = moves[i] if i < len(moves) else f"Movimiento {i+1}"
+                        q_value = q_vals.get(i, 0) if q_vals else 0
+                        q_data.append({'Movimiento': move_name, 'Q-Value': q_value})
+                    
+                    df_q = pd.DataFrame(q_data)
+                    
+                    # Create bar chart with Altair
+                    chart = alt.Chart(df_q).mark_bar().encode(
+                        x=alt.X('Movimiento:N', title='Movimiento'),
+                        y=alt.Y('Q-Value:Q', title='Valor Q (Esperado)'),
+                        color=alt.condition(
+                            alt.datum['Q-Value'] == alt.expr.max(df_q['Q-Value']),
+                            alt.value('#FFD700'),  # Gold for best action
+                            alt.value('#4169E1')   # Blue for others
+                        ),
+                        tooltip=['Movimiento', 'Q-Value']
+                    ).properties(
+                        width=600,
+                        height=300,
+                        title='Comparación de Q-Values por Movimiento'
+                    )
+                    
+                    st.altair_chart(chart, use_container_width=True)
+                    
+                    # Textual explanation
+                    if q_vals and len(q_data) > 0:
+                        best_idx = max(range(len(q_data)), key=lambda i: q_data[i]['Q-Value'])
+                        best_move = q_data[best_idx]['Movimiento']
+                        best_q = q_data[best_idx]['Q-Value']
+                        
+                        # Find second best
+                        sorted_q = sorted(q_data, key=lambda x: x['Q-Value'], reverse=True)
+                        second_best = sorted_q[1] if len(sorted_q) > 1 else sorted_q[0]
+                        
+                        explanation = f"""
+                        **Explicación de la Decisión:**
+                        
+                        El agente eligió **{best_move}** porque su valor esperado (Q) es **{best_q:.2f}**, 
+                        mientras que **{second_best['Movimiento']}** tiene un valor de **{second_best['Q-Value']:.2f}**.
+                        
+                        Los Q-Values representan la recompensa esperada de cada acción. El agente selecciona 
+                        el movimiento con el mayor Q-Value para maximizar la efectividad en batalla.
+                        """
+                        st.info(explanation)
+                elif st.session_state.last_move:
+                    st.warning("🔍 Modo exploración activo - Q-Values no disponibles (decisión aleatoria)")
                 
                 st.markdown("""
                 <div style='background: rgba(0,0,0,0.7); color: #FFF; padding: 15px; border-radius: 10px; 
@@ -725,6 +916,327 @@ elif mode == "Modo Visualización":
         
         else:
             st.info("🎮 Esperando inicialización del entorno...")
+
+# ========== MODO EXPLORACIÓN (FOLIUM MAP) ==========
+elif mode == "Modo Exploración":
+    st.markdown("""
+    <h2 style='color: #FFD700; text-align: center;'>🗺️ MODO EXPLORACIÓN - MAPA INTERACTIVO</h2>
+    <p style='color: #FFF; text-align: center;'>Explora el mundo real y encuentra Pokémon salvajes y gimnasios</p>
+    """, unsafe_allow_html=True)
+    
+    # Initialize agents if not done
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🔄 Inicializar Sistema"):
+            env, explorer, tactician, strategist = initialize_agents()
+            st.success("✅ Sistema inicializado")
+    
+    with col2:
+        checkpoint_episode = st.selectbox("Cargar checkpoint", [3000, 2000, 1000], index=0, key="exp_checkpoint")
+        if st.button("📥 Cargar Modelo", key="exp_load"):
+            if st.session_state.env is None:
+                st.error("⚠️ Primero inicializa el sistema")
+            else:
+                if load_checkpoints(st.session_state.explorer, st.session_state.tactician, checkpoint_episode):
+                    st.success(f"✅ Modelo ep{checkpoint_episode} cargado")
+                else:
+                    st.warning(f"⚠️ No se encontraron checkpoints para episodio {checkpoint_episode}")
+    
+    st.markdown("---")
+    
+    # Create and display Folium map
+    st.subheader("🌍 Mapa del Mundo Pokémon")
+    st.write("Haz clic en los marcadores para iniciar batallas o capturar Pokémon")
+    
+    # Create the map
+    folium_map, geojson_data = create_folium_map()
+    
+    # Display the map and capture interactions
+    map_data = st_folium(
+        folium_map,
+        width=1000,
+        height=600,
+        key="folium_map"
+    )
+    
+    # Handle marker click
+    if map_data and map_data.get('last_object_clicked'):
+        clicked = map_data['last_object_clicked']
+        
+        # Check if this is a new click
+        if clicked != st.session_state.selected_marker:
+            st.session_state.selected_marker = clicked
+            
+            # Find which marker was clicked
+            clicked_lat = clicked.get('lat')
+            clicked_lng = clicked.get('lng')
+            
+            if clicked_lat and clicked_lng:
+                # Search in gyms
+                selected_location = None
+                for gym in geojson_data["gyms"]["features"]:
+                    coords = gym["geometry"]["coordinates"]
+                    if abs(coords[1] - clicked_lat) < 0.0001 and abs(coords[0] - clicked_lng) < 0.0001:
+                        selected_location = gym["properties"]
+                        selected_location['category'] = 'gym'
+                        break
+                
+                # Search in wild pokemon
+                if not selected_location:
+                    for wild in geojson_data["wild"]["features"]:
+                        coords = wild["geometry"]["coordinates"]
+                        if abs(coords[1] - clicked_lat) < 0.0001 and abs(coords[0] - clicked_lng) < 0.0001:
+                            selected_location = wild["properties"]
+                            selected_location['category'] = 'wild'
+                            break
+                
+                if selected_location:
+                    # Transition to combat mode
+                    st.session_state.map_mode = 'COMBAT'
+                    
+                    # Initialize environment if needed
+                    if st.session_state.env is None:
+                        st.warning("⚠️ Inicializando entorno automáticamente...")
+                        env, explorer, tactician, strategist = initialize_agents()
+                    
+                    env = st.session_state.env
+                    strategist = st.session_state.strategist
+                    
+                    # Setup team based on location type
+                    all_ids = list(env.pokedex.keys())
+                    if len(all_ids) >= 6:
+                        party_ids = np.random.choice(all_ids, 6, replace=False)
+                    else:
+                        party_ids = all_ids
+                    strategist.set_party(party_ids)
+                    
+                    # Determine enemy type based on location
+                    enemy_type = selected_location.get('pokemon_type', 'normal')
+                    best = strategist.build_team(enemy_type)
+                    
+                    env.my_pokemon = best.copy()
+                    env.my_pokemon['level'] = 5
+                    env.my_pokemon['exp'] = 0
+                    
+                    # Reset environment to start combat
+                    state, _ = env.reset()
+                    env.mode = "COMBAT"  # Force combat mode
+                    
+                    st.session_state.visualization_state = state
+                    st.session_state.step_count = 0
+                    st.session_state.total_reward = 0
+                    st.session_state.done = False
+                    
+                    st.success(f"⚔️ ¡Batalla iniciada contra {selected_location['name']}! (Tipo: {enemy_type.upper()})")
+                    st.info("👉 Cambia al 'Modo Visualización' para ver la batalla")
+    
+    # Display selected marker info
+    if st.session_state.selected_marker:
+        st.markdown("---")
+        st.subheader("📍 Ubicación Seleccionada")
+        marker_info = st.session_state.selected_marker
+        st.json(marker_info)
+    
+    # Legend
+    st.markdown("---")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("""
+        **🏠 Gimnasios Pokémon (Rojo)**
+        - Batallas de nivel avanzado
+        - Basados en el tipo del lugar
+        - Recompensas especiales
+        """)
+    with col2:
+        st.markdown("""
+        **🍃 Pokémon Salvajes (Verde)**
+        - Encuentros aleatorios
+        - Variedad de tipos
+        - Oportunidad de captura
+        """)
+
+# ========== DASHBOARD ESTADÍSTICAS ==========
+elif mode == "Dashboard Estadísticas":
+    st.markdown("""
+    <h2 style='color: #FFD700; text-align: center;'>📊 DASHBOARD DE ESTADÍSTICAS</h2>
+    <p style='color: #FFF; text-align: center;'>Analiza el rendimiento de tus agentes en el mundo real</p>
+    """, unsafe_allow_html=True)
+    
+    # Check if we have training data
+    if not st.session_state.training_history.get('episodes') or len(st.session_state.training_history['episodes']) == 0:
+        st.warning("⚠️ No hay datos de entrenamiento disponibles. Primero ejecuta un entrenamiento en 'Modo Entrenamiento'.")
+        st.info("💡 El dashboard mostrará estadísticas una vez que hayas entrenado el modelo.")
+    else:
+        history = st.session_state.training_history
+        
+        # Summary metrics
+        st.subheader("📈 Resumen General")
+        col1, col2, col3, col4 = st.columns(4)
+        
+        total_episodes = len(history['episodes'])
+        avg_reward = np.mean(history['rewards']) if history['rewards'] else 0
+        total_wins = sum(history.get('wins', []))
+        win_rate = (total_wins / total_episodes * 100) if total_episodes > 0 else 0
+        
+        col1.metric("Total Episodios", total_episodes)
+        col2.metric("Reward Promedio", f"{avg_reward:.2f}")
+        col3.metric("Victorias", total_wins)
+        col4.metric("Tasa de Victoria", f"{win_rate:.1f}%")
+        
+        st.markdown("---")
+        
+        # Heatmap of battle wins
+        st.subheader("🗺️ Mapa de Calor - Zonas de Victoria")
+        st.write("Visualización de las ubicaciones donde el agente ha ganado más batallas")
+        
+        if history.get('gps_coords') and history.get('wins'):
+            # Create folium map for heatmap
+            center_lat = 40.4168
+            center_lon = -3.7038
+            
+            heatmap_m = folium.Map(
+                location=[center_lat, center_lon],
+                zoom_start=12,
+                tiles='OpenStreetMap'
+            )
+            
+            # Add markers for wins (green) and losses (red)
+            for i, (coords, is_win) in enumerate(zip(history['gps_coords'], history['wins'])):
+                if coords and len(coords) == 2:
+                    lat, lon = coords
+                    episode = history['episodes'][i]
+                    reward = history['rewards'][i]
+                    
+                    folium.CircleMarker(
+                        location=[lat, lon],
+                        radius=5,
+                        popup=f"Ep {episode}: {'Victoria' if is_win else 'Derrota'} (R: {reward:.1f})",
+                        color='green' if is_win else 'red',
+                        fill=True,
+                        fillOpacity=0.6
+                    ).add_to(heatmap_m)
+            
+            # Display the heatmap
+            st_folium(heatmap_m, width=1000, height=500, key="heatmap")
+        else:
+            st.info("📍 Datos GPS no disponibles. Los datos de GPS se generan durante el entrenamiento.")
+        
+        st.markdown("---")
+        
+        # Scatter plot: Distance vs Win Rate
+        st.subheader("📍 Distancia vs Tasa de Victoria")
+        st.write("Relación entre la distancia a la ubicación base y la tasa de victorias")
+        
+        if history.get('gps_coords') and history.get('wins'):
+            # Calculate distances from center
+            center_lat = 40.4168
+            center_lon = -3.7038
+            
+            distances = []
+            win_rates_by_distance = []
+            
+            # Group by distance buckets
+            for coords, is_win in zip(history['gps_coords'], history['wins']):
+                if coords and len(coords) == 2:
+                    lat, lon = coords
+                    # Simple distance calculation (Euclidean approximation)
+                    dist = np.sqrt((lat - center_lat)**2 + (lon - center_lon)**2) * 111  # Convert to km
+                    distances.append(dist)
+            
+            # Create scatter data
+            scatter_data = pd.DataFrame({
+                'Episodio': history['episodes'][:len(distances)],
+                'Distancia (km)': distances,
+                'Victoria': [1 if w else 0 for w in history['wins'][:len(distances)]],
+                'Reward': history['rewards'][:len(distances)]
+            })
+            
+            # Create scatter plot with Altair
+            scatter_chart = alt.Chart(scatter_data).mark_circle(size=60).encode(
+                x=alt.X('Distancia (km):Q', title='Distancia desde Centro (km)'),
+                y=alt.Y('Reward:Q', title='Reward Total'),
+                color=alt.Color('Victoria:N', scale=alt.Scale(domain=[0, 1], range=['red', 'green']), 
+                               legend=alt.Legend(title='Resultado')),
+                tooltip=['Episodio', 'Distancia (km)', 'Victoria', 'Reward']
+            ).properties(
+                width=800,
+                height=400,
+                title='Dispersión: Distancia vs Rendimiento'
+            )
+            
+            st.altair_chart(scatter_chart, use_container_width=True)
+            
+            # Statistics by distance
+            st.markdown("#### 📊 Estadísticas por Distancia")
+            
+            # Bucket distances
+            scatter_data['Distancia_Bucket'] = pd.cut(scatter_data['Distancia (km)'], bins=5, labels=['Muy Cerca', 'Cerca', 'Medio', 'Lejos', 'Muy Lejos'])
+            
+            stats_by_dist = scatter_data.groupby('Distancia_Bucket').agg({
+                'Victoria': ['sum', 'count', 'mean'],
+                'Reward': 'mean'
+            }).round(2)
+            
+            stats_by_dist.columns = ['Victorias', 'Total Batallas', 'Win Rate', 'Reward Promedio']
+            stats_by_dist['Win Rate'] = (stats_by_dist['Win Rate'] * 100).round(1)
+            
+            st.dataframe(stats_by_dist, use_container_width=True)
+        else:
+            st.info("📍 Datos GPS no disponibles. Los datos de GPS se generan durante el entrenamiento.")
+        
+        st.markdown("---")
+        
+        # Additional analytics
+        st.subheader("📉 Análisis Temporal")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Reward over time
+            reward_df = pd.DataFrame({
+                'Episodio': history['episodes'],
+                'Reward': history['rewards']
+            })
+            
+            reward_chart = alt.Chart(reward_df).mark_line(point=True).encode(
+                x='Episodio:Q',
+                y='Reward:Q',
+                tooltip=['Episodio', 'Reward']
+            ).properties(
+                width=400,
+                height=300,
+                title='Evolución del Reward'
+            )
+            
+            st.altair_chart(reward_chart, use_container_width=True)
+        
+        with col2:
+            # Win rate over time (moving average)
+            if history.get('wins'):
+                window = min(20, len(history['wins']))
+                wins_array = np.array([1 if w else 0 for w in history['wins']])
+                
+                if len(wins_array) >= window:
+                    win_rate_ma = np.convolve(wins_array, np.ones(window)/window, mode='valid')
+                    
+                    winrate_df = pd.DataFrame({
+                        'Episodio': history['episodes'][window-1:],
+                        'Win Rate (%)': win_rate_ma * 100
+                    })
+                    
+                    winrate_chart = alt.Chart(winrate_df).mark_line(color='green').encode(
+                        x='Episodio:Q',
+                        y=alt.Y('Win Rate (%):Q', scale=alt.Scale(domain=[0, 100])),
+                        tooltip=['Episodio', 'Win Rate (%)']
+                    ).properties(
+                        width=400,
+                        height=300,
+                        title=f'Tasa de Victoria (Media móvil {window} ep.)'
+                    )
+                    
+                    st.altair_chart(winrate_chart, use_container_width=True)
+                else:
+                    st.info("Necesitas más episodios para calcular la media móvil")
 
 # Footer with Pokemon theme
 st.sidebar.markdown("---")

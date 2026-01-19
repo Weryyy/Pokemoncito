@@ -52,16 +52,37 @@ class TacticianAgent:
         self.epsilon_decay = 0.995
         self.gamma = 0.95
 
-    def select_action(self, state):
+    def select_action(self, state, return_q_values=False):
+        """
+        Select action using epsilon-greedy policy.
+        
+        Args:
+            state: Current state observation
+            return_q_values: If True, returns (action, q_values_dict) for XAI
+        
+        Returns:
+            If return_q_values is False: action (int)
+            If return_q_values is True: (action, dict with Q-values for all actions)
+        """
         if random.random() < self.epsilon:
-            return random.randint(0, self.n_actions - 1)
+            action = random.randint(0, self.n_actions - 1)
+            if return_q_values:
+                # For random actions, return None for q_values to indicate exploration
+                return action, None
+            return action
 
         with torch.no_grad():
             state_tensor = torch.FloatTensor(state).to(self.device)
             if state_tensor.dim() == 1:
                 state_tensor = state_tensor.unsqueeze(0)
             q_values = self.policy_net(state_tensor)
-            return q_values.argmax().item()
+            action = q_values.argmax().item()
+            
+            if return_q_values:
+                # Return Q-values as a dictionary for XAI
+                q_values_dict = {i: q_values[0, i].item() for i in range(self.n_actions)}
+                return action, q_values_dict
+            return action
 
     def learn(self, state, action, reward, next_state, done):
         try:
